@@ -1,7 +1,7 @@
 import otherModule
 
 def main():
-    print("Hello world!")
+    print("Hello world! Again!")
     otherModule.Foo().doStoff()
 
 
