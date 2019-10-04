@@ -1,0 +1,52 @@
+---
+title: "Trabajo Practico 1"
+output: html_notebook
+---
+
+Paso 1: Cargamos los datos de entrada
+
+```{r}
+ar_properties <- read.csv(unz('ar_properties.zip', 'ar_properties.csv'), row.names=NULL, stringsAsFactors=FALSE)
+head(ar_properties)
+nrow(ar_properties)
+```
+
+
+Paso 2: Filtramos los datos
+
+```{r}
+library(tidyverse)
+ar_properties <- ar_properties %>% filter(
+                    l1             ==   'Argentina' &
+                    l2             ==   'Capital Federal' &
+                    currency       ==   'USD' &
+                    operation_type ==   'Venta' &
+                    property_type  %in% c('Casa', 'Departamento', 'PH'))
+
+ar_properties <- ar_properties %>% select(
+                    id,
+                    l3,
+                    rooms,
+                    bedrooms,
+                    bathrooms,
+                    surface_total,
+                    surface_covered,
+                    price,
+                    property_type )
+
+nrow(ar_properties)
+
+```
+
+
+
+This is an [R Markdown](http://rmarkdown.rstudio.com) Notebook. When you execute code within the notebook, the results appear beneath the code. 
+
+Try executing this chunk by clicking the *Run* button within the chunk or by placing your cursor inside it and pressing *Ctrl+Shift+Enter*. 
+
+
+Add a new chunk by clicking the *Insert Chunk* button on the toolbar or by pressing *Ctrl+Alt+I*.
+
+When you save the notebook, an HTML file containing the code and output will be saved alongside it (click the *Preview* button or press *Ctrl+Shift+K* to preview the HTML file).
+
+The preview shows you a rendered HTML copy of the contents of the editor. Consequently, unlike *Knit*, *Preview* does not run any R code chunks. Instead, the output of the chunk when it was last run in the editor is displayed.
