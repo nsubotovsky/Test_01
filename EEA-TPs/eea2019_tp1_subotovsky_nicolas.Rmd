@@ -6,7 +6,7 @@ output: html_notebook
 Paso 1: Cargamos los datos de entrada
 
 ```{r}
-ar_properties <- read.csv(unz('ar_properties.zip', 'ar_properties.csv'), row.names=NULL, stringsAsFactors=FALSE)
+ar_properties <- read.csv(unz('ar_properties.zip', 'ar_properties.csv'), row.names=NULL, stringsAsFactors=TRUE)
 head(ar_properties)
 nrow(ar_properties)
 ```
@@ -34,10 +34,23 @@ ar_properties <- ar_properties %>% select(
                     price,
                     property_type )
 
-nrow(ar_properties)
 
 ```
 
+
+```{r}
+nrow(ar_properties)
+
+
+for (columnName in colnames(ar_properties))
+{
+  print(paste0(str_pad(columnName, 20, side='right'), '=> ', length(unique(ar_properties[[columnName]]))))
+}
+
+
+
+#sort(unique(as.character(ar_properties$l3)))
+```
 
 
 This is an [R Markdown](http://rmarkdown.rstudio.com) Notebook. When you execute code within the notebook, the results appear beneath the code. 
