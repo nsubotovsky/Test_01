@@ -78,6 +78,11 @@ library(GGally)
 ggcorr(ar_properties, method = c("everything", "pearson")) 
 
 
+
+# Tips on detecting outliers:
+# https://towardsdatascience.com/a-brief-overview-of-outlier-detection-techniques-1e0b2c19e561
+
+
 #for (columnName in colnames(ar_properties))
 #{
 #  print(paste0(str_pad(columnName, 20, side='right'), '=> ', length(unique(ar_properties[[columnName]]))))
@@ -93,3 +98,4 @@ ggcorr(ar_properties, method = c("everything", "pearson"))
 
 
 #sort(unique(as.character(ar_properties$l3)))
+
