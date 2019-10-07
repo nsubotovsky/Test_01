@@ -1,13 +1,43 @@
 print("hello world")
 
+# suppressPackageStartupMessages( library(  ) ) ## <=- use this to avoid error messages
+# 
 
-ar_properties <- read.csv(unz('ar_properties.zip', 'ar_properties.csv'), row.names=NULL, stringsAsFactors=TRUE)
+
+# ## Redundancias
+# Abasto -> Balvanera
+# Congreso -> Balbanera
+# Barrio Norte -> Recoleta
+# Catalinas -> Boca
+# Centro / Microcentro -> Retiro
+# Las CaÃ±itas -> Palermo
+# Once -> Balbanera
+# Parque Centenario -> Caballito
+# Tribunales -> San Nicolas
+
+
+# for (i in sort(unique(ar_properties[,c('l3')])))
+# {
+#   print(i)
+# }
+# 
+
+
+setwd("C:/Users/Luxor/Documents/GitHub/Test_01/EEA-TPs")
+
+ar_properties <- read.csv(unz('ar_properties.zip', 'ar_properties.csv'), row.names=NULL, stringsAsFactors=TRUE, fileEncoding = "UTF-8")
+
+# No usamos esto, ya que filter() descarta las filas a proposito
+# length(unique(ar_properties$id))
+# ar_properties <- ar_properties %>% column_to_rownames( var='id')
+
 head(ar_properties)
 nrow(ar_properties)
 
-library(tidyverse)
+suppressPackageStartupMessages(library(tidyverse))
+
 ar_properties <- ar_properties %>% filter(
-  l1             ==   'Argentina' &
+    l1             ==   'Argentina' &
     l2             ==   'Capital Federal' &
     currency       ==   'USD' &
     operation_type ==   'Venta' &
@@ -54,8 +84,16 @@ ar_properties <- ar_properties[complete.cases(ar_properties),]
 #Analisis exploratorios (II)
 
 # Obtener estadisticas descriptivas para la variable precio (cuartiles, promedio, minimo y maximo) y realizar un histograma de la variable
-summary(ar_properties$price)
-mean(ar_properties$price)
+
+summary.with.mean <- function(data)
+{
+    summary <- summary(data)
+    summary['mean'] = mean(data)
+    return( summary )
+}
+
+
+summary.with.mean(ar_properties$price)
 
 hist(ar_properties$price)
 hist(log(ar_properties$price))
@@ -68,19 +106,78 @@ ar_properties %>%
             )
 
 
-tapply(ar_properties$price, ar_properties$property_type, summary)
+tapply(ar_properties$price, ar_properties$property_type, summary.with.mean)
 
 
 ggplot(ar_properties, aes(x=property_type, y=price, fill=property_type)) + geom_boxplot()
 ggplot(ar_properties, aes(x=property_type, y=log(price), fill=property_type)) + geom_boxplot()
 
-library(GGally)
+suppressPackageStartupMessages(library(GGally))
 ggcorr(ar_properties, method = c("everything", "pearson")) 
 
+#ggpairs(ar_properties %>% select( -c("id", "l3") ), ggplot2::aes(colour=property_type) )
 
 
 # Tips on detecting outliers:
 # https://towardsdatascience.com/a-brief-overview-of-outlier-detection-techniques-1e0b2c19e561
+
+suppressPackageStartupMessages(library("solitude"))
+iso <- solitude::isolationForest$new()
+
+iso$fit(ar_properties %>% select( -c("id", "l3") ) )
+
+
+
+ar_properties$anomalyScore = iso$scores$anomaly_score
+
+print(iso$scores)
+
+quantile(iso$scores$anomaly_score
+         , probs = seq(0.5, 1, length.out = 11)
+)
+
+b<- ar_properties[iso$scores$anomaly_score > 0.7,]
+
+
+# funcion para obtener las columnas especificadas, o las numericas en caso de no especificarse
+get.numeric.columns <- function(df, columns.to.get=NULL) {
+    if (is.null(columns.to.get))
+        columns.to.get <- colnames(df)[unlist(lapply(df, is.numeric))]
+
+    return(columns.to.get)
+}
+
+
+
+# funcion para escalar las columnas especificadas (o todas las numericas si no se especifica)
+scale.numeric.cols <- function(df, columns.to.scale = NULL) {
+
+    # Elegir como predeterminado a las numericas en caso de que no esten especificadas
+    columns.to.scale <- get.numeric.columns(df, columns.to.scale)
+
+    # Aplicar el escalamiento a las columnas elegidas, y agregarles el prefijo 'scaled.'
+    scaled.df <- as.data.frame(scale(ar_properties[, columns.to.scale]))
+    colnames(scaled.df) <- paste0('scaled.', columns.to.scale)
+    return(cbind(df,scaled.df))
+}
+
+
+
+ar_properties <- scale.numeric.cols(ar_properties, c('price'))
+
+
+quantile(ar_properties$price
+         , probs = seq(0, 0.01, length.out = 11)
+)
+
+quantile(ar_properties$price
+         , probs = seq(.99, 1, length.out = 11)
+)
+
+
+
+no.outliers = ar_properties %>% filter(
+    anomalyScore <= 0.6 )
 
 
 #for (columnName in colnames(ar_properties))
