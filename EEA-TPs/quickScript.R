@@ -16,6 +16,9 @@ print("hello world")
 # Parque Centenario -> Caballito
 # Tribunales -> San Nicolas
 
+barrios_portenos <- c("Agronomía", "Almagro", "Balvanera", "Barracas", "Belgrano", "Boedo", "Caballito", "Chacarita", "Coghlan", "Colegiales", "Constitución", "Flores", "Floresta", "Boca", "Paternal", "Liniers", "Mataderos", "Monserrat", "Monte Castro", "Pompeya", "Nuñez", "Palermo", "Parque Avellaneda", "Parque Chacabuco", "Parque Chas", "Parque Patricios", "Puerto Madero", "Recoleta", "Retiro", "Saavedra", "San Cristobal", "San Nicolás", "San Telmo", "Velez Sarsfield", "Versalles", "Villa Crespo", "Villa del Parque", "Villa Devoto", "Villa General Mitre", "Villa Lugano", "Villa Luro", "Villa Ortuzar", "Villa Pueyrredón", "Villa Real", "Villa Riachuelo", "Villa Santa Rita", "Villa Soldati", "Villa Urquiza")
+sort(setdiff(unique(ar_properties$l3), barrios_portenos))
+
 
 # for (i in sort(unique(ar_properties[,c('l3')])))
 # {
@@ -26,7 +29,7 @@ print("hello world")
 
 setwd("C:/Users/Luxor/Documents/GitHub/Test_01/EEA-TPs")
 
-ar_properties <- read.csv(unz('ar_properties.zip', 'ar_properties.csv'), row.names=NULL, stringsAsFactors=TRUE, fileEncoding = "UTF-8")
+ar_properties <- read.csv(unz('ar_properties.zip', 'ar_properties.csv'), row.names = NULL, stringsAsFactors = TRUE, encoding = "UTF-8")
 
 # No usamos esto, ya que filter() descarta las filas a proposito
 # length(unique(ar_properties$id))
@@ -35,7 +38,8 @@ ar_properties <- read.csv(unz('ar_properties.zip', 'ar_properties.csv'), row.nam
 head(ar_properties)
 nrow(ar_properties)
 
-suppressPackageStartupMessages(library(tidyverse))
+
+
 
 ar_properties <- ar_properties %>% filter(
     l1             ==   'Argentina' &
@@ -125,7 +129,7 @@ ggcorr(ar_properties, method = c("everything", "pearson"))
 suppressPackageStartupMessages(library("solitude"))
 iso <- solitude::isolationForest$new()
 
-iso$fit(ar_properties %>% select( -c("id", "l3") ) )
+iso$fit(ar_properties %>% select( c("rooms", "price", "surface_total") ) )
 
 
 
@@ -167,6 +171,14 @@ scale.numeric.cols <- function(df, columns.to.scale = NULL) {
 ar_properties <- scale.numeric.cols(ar_properties, c('price'))
 
 
+linear.model.surface <- lm(price ~ surface_total, data = ar_properties)
+linear.model.rooms <- lm(price ~ rooms, data = ar_properties)
+
+summary(linear.model.surface)
+
+summary(linear.model.rooms)
+
+
 quantile(ar_properties$price
          , probs = seq(0, 0.01, length.out = 11)
 )
@@ -177,9 +189,22 @@ quantile(ar_properties$price
 
 
 
-no.outliers = ar_properties %>% filter(
-    anomalyScore <= 0.6 )
 
+
+
+quantile(ar_properties$anomalyScore
+         , probs = seq(.99, 1, length.out = 11)
+)
+
+
+only.outliers = ar_properties %>% filter(anomalyScore > 0.60)
+
+
+no.outliers = ar_properties %>% filter(anomalyScore <= 0.60)
+
+ggplot(no.outliers, aes(x = rooms, y=price)) + geom_point(aes(colour = anomalyScore)) + scale_colour_viridis_c()
+
+ggplot(ar_properties, aes(x = property_type, y=log(surface_total), fill = property_type)) + geom_boxplot()
 
 #for (columnName in colnames(ar_properties))
 #{

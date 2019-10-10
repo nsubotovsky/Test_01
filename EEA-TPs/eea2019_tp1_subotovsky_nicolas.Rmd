@@ -1,65 +1,349 @@
 ---
 title: "Trabajo Practico 1"
-output: html_notebook
+output:
+  html_document:
+    df_print: paged
 ---
 
-Paso 1: Cargamos los datos de entrada
+
+### 1: Carga de datos
+
+#### 1.A: Lectura y analisis de estructura del archivo
+
+Procedemos a cargar el archivo de entrada y verificar la cantidad de variables y casos.
+Para ello tenemos que descomprimir el archivo antes de cargalo, y tabmien especificar el encoding correcto (`UTF-8`) para la carga correcta de caracteres especiales.
 
 ```{r}
-ar_properties <- read.csv(unz('ar_properties.zip', 'ar_properties.csv'), row.names=NULL, stringsAsFactors=TRUE)
+#carga de datos
+ar_properties <- read.csv(unz('ar_properties.zip', 'ar_properties.csv'), row.names = NULL, stringsAsFactors = TRUE, encoding = "UTF-8")
+
+#verificaion de casos y variables
 head(ar_properties)
 nrow(ar_properties)
 ```
 
 
-Paso 2: Filtramos los datos
+#### 1.B: Preprocesado y filtrado
+
+Cargamos la libreria tidyverse para realizar los filtrados, y procedemos a extraer los casos de interes:
 
 ```{r}
-library(tidyverse)
+suppressPackageStartupMessages(library(tidyverse))
+
+# Filtrado de los casos deseados
 ar_properties <- ar_properties %>% filter(
-                    l1             ==   'Argentina' &
-                    l2             ==   'Capital Federal' &
-                    currency       ==   'USD' &
-                    operation_type ==   'Venta' &
-                    property_type  %in% c('Casa', 'Departamento', 'PH'))
-
-ar_properties <- ar_properties %>% select(
-                    id,
-                    l3,
-                    rooms,
-                    bedrooms,
-                    bathrooms,
-                    surface_total,
-                    surface_covered,
-                    price,
-                    property_type )
-
-
+    l1             == 'Argentina' &
+    l2             == 'Capital Federal' &
+    currency       == 'USD' &
+    operation_type == 'Venta' &
+    property_type  %in% c('Casa', 'Departamento', 'PH'))
 ```
 
 
+#### 1.C: Preprocesado y filtrado
+
+Una vez filtrados los casos, seleccionamos las variables deseadas y reajustamos los niveles de las variables de categoria (descartamos las categorias que ya no figuran en nuestros datos). Verificamos nuevamente la cantidad de registros y variables que quedan
+
 ```{r}
+# Seleccion de las variables de interes
+ar_properties <- ar_properties %>% select(
+  id,
+  l3,
+  rooms,
+  bedrooms,
+  bathrooms,
+  surface_total,
+  surface_covered,
+  price,
+  property_type )
+
+# eliminacion de categorias en desuso
+ar_properties <- droplevels(ar_properties)
+
+#verificacion de casos y variables
 nrow(ar_properties)
+ncol(ar_properties)
+```
 
 
-for (columnName in colnames(ar_properties))
-{
-  print(paste0(str_pad(columnName, 20, side='right'), '=> ', length(unique(ar_properties[[columnName]]))))
+### 2: Analisis exploratorio (I)
+
+#### 2.A: Analisis de valores distintos y faltantes
+
+calculamos la cantidad de valores distintos y faltantes, y los analizamos:
+
+```{r}
+# calculamos la cantidad de valores distintos
+uniques.values <- apply(ar_properties, 2, n_distinct)
+as.data.frame(uniques.values)
+
+# calculamos la cantidad de valores faltantes
+missing.values <- colSums(is.na(ar_properties))
+as.data.frame(missing.values)
+```
+
+Curiosamente, notamos que para el campo **l3** que corresponde al barrio porteño, hay 57 valores distintos (58 si tomamos en cuenta NA). Esto se contradice con los 48 barrios porteños existentes, por lo que analizamos los barrios inesperados:
+
+```{r}
+barrios.portenos.officiales <- c("Agronomía", "Almagro", "Balvanera", "Barracas", "Belgrano", "Boedo", "Caballito", "Chacarita", "Coghlan", "Colegiales", "Constitución", "Flores", "Floresta", "Boca", "Paternal", "Liniers", "Mataderos", "Monserrat", "Monte Castro", "Pompeya", "Nuñez", "Palermo", "Parque Avellaneda", "Parque Chacabuco", "Parque Chas", "Parque Patricios", "Puerto Madero", "Recoleta", "Retiro", "Saavedra", "San Cristobal", "San Nicolás", "San Telmo", "Velez Sarsfield", "Versalles", "Villa Crespo", "Villa del Parque", "Villa Devoto", "Villa General Mitre", "Villa Lugano", "Villa Luro", "Villa Ortuzar", "Villa Pueyrredón", "Villa Real", "Villa Riachuelo", "Villa Santa Rita", "Villa Soldati", "Villa Urquiza")
+sort(setdiff(unique(ar_properties$l3), barrios.portenos.officiales))
+
+```
+
+Observamos como los barrios 'extra' corresponden a denominaciones no-oficiales de ciertas regions de la CABA.
+
+
+#### 2.B: Matriz de correlacion
+
+Para el calculo de la matriz de correlacion, necesitamos poder extraer las variables del tipo numerico. Dado que esta funcion sera utilizada en pasos posteriores, será de utilidad crear una funcion que permita automatizar esta funcion; y ademas agregamos la opcion para seleccionar columnas especificas en lugar de todas las numericas. Luego procedemos a calcular la correlacion de las variables numericas.
+
+```{r}
+# funcion para obtener las columnas especificadas, o las numericas en caso de no especificarse
+get.numeric.columns <- function(df, columns.to.get=NULL) {
+    if (is.null(columns.to.get))
+        columns.to.get <- colnames(df)[unlist(lapply(df, is.numeric))]
+
+    return(columns.to.get)
 }
 
+# calculamos la correlacion de las variables numericas, descartando los casos incompletos
+cor(ar_properties[,get.numeric.columns(ar_properties)], use="complete.obs", method="pearson")
 
-
-#sort(unique(as.character(ar_properties$l3)))
 ```
 
 
-This is an [R Markdown](http://rmarkdown.rstudio.com) Notebook. When you execute code within the notebook, the results appear beneath the code. 
+### 3: Preparacion de datos
 
-Try executing this chunk by clicking the *Run* button within the chunk or by placing your cursor inside it and pressing *Ctrl+Shift+Enter*. 
+#### 3.A: Eliminacion de variables altamente correlacionadas
+
+Dado que las variables `rooms` y `bedrooms` presentan alta correlacion, procedemos a eliminar una de ellas, la de mayor cantaidad de faltantes (**bedrooms**)
+
+```{r}
+# eliminacion de la variable `bedrooms`
+ar_properties <- ar_properties %>% select( -c('bedrooms') )
+```
 
 
-Add a new chunk by clicking the *Insert Chunk* button on the toolbar or by pressing *Ctrl+Alt+I*.
+#### 3.B: Filtrado de los casos incompletos
 
-When you save the notebook, an HTML file containing the code and output will be saved alongside it (click the *Preview* button or press *Ctrl+Shift+K* to preview the HTML file).
+Filtramos los casos incompletos y validamos la cantidad de variables y casos
 
-The preview shows you a rendered HTML copy of the contents of the editor. Consequently, unlike *Knit*, *Preview* does not run any R code chunks. Instead, the output of the chunk when it was last run in the editor is displayed.
+```{r}
+# eliminacion de la variable `bedrooms`
+ar_properties <- ar_properties[complete.cases(ar_properties),]
+
+#Validamos la cantidad de casos y variables
+nrow(ar_properties)
+ncol(ar_properties)
+```
+
+
+### 4: Analisis exploratorio (II)
+
+#### 4.A: Obtencion de estadisticas generales
+
+Obtenemos estadisticas de la variable precio. Generamos funciones que reutilizaremos mas tarde.
+
+```{r}
+
+# Funcion para generar estadisticas con la media incluida
+summary.with.mean <- function(data)
+{
+    summary <- summary(data)
+    summary['mean'] = mean(data)
+    return( summary )
+}
+
+# Caluclamos las estadisticas
+summary.with.mean(ar_properties$price)
+
+# Y realizamos un histograma
+ggplot(ar_properties, aes(x = price)) + geom_histogram()
+
+```
+
+Notamos que hay una gran variacion de precios, y que la mayoria de los valores se concentran en los valores mas bajos. Por ese motivo, repetimos el histograma pero utiliando una escala logaritmica para poder observar mejor la distribucion.
+
+```{r}
+ggplot(ar_properties, aes(x = price)) + geom_histogram(alpha=0.5, position="identity", aes(y = ..density..)) + scale_x_log10() + geom_density(alpha=0.5)
+```
+
+#### 4.B: Obtencion de estadisticas por tipo de propiedad
+
+Realizamos el mismo analisis anterior, pero segmentado por tipo de propiedad.
+
+```{r}
+# Calculamos las estadisticas, discriminando por tipo de propiedad
+tapply(ar_properties$price, ar_properties$property_type, summary.with.mean)
+
+# Realizamos el histograma, discriminando por tipo de propiedad
+ggplot(ar_properties, aes(x=price, fill=property_type)) +
+    geom_histogram(alpha=0.5, position="identity", aes(y = ..density..)) +
+    geom_density(alpha=0.5) +
+    scale_x_log10()
+```
+
+
+
+#### 4.C: Boxplots
+
+Graficamos los boxplots del precio por cada tipo de propiedad. Siguiendo la misma logica, escalamos el eje de precios logaritmicamente.
+
+```{r}
+# Graficamos los boxplots
+ggplot(ar_properties, aes(x=property_type, y=price, fill=property_type)) +
+    geom_boxplot() +
+    scale_y_log10()
+
+```
+
+
+Obervamos como los precios tienen una tendencia del tipo Casa > PH > depto (ya obervada tambien previamente en los histogramas)
+
+
+#### 4.D: Correlograma
+
+```{r}
+suppressPackageStartupMessages(library(GGally))
+
+# Graficamos el correlograma
+ggcorr(ar_properties[,get.numeric.columns(ar_properties)], method = c("everything", "pearson")) 
+```
+
+#### 5: Outliers
+
+Analizamos como se componen los precios en los extremos superiores e inferiores de la distribucion
+
+```{r}
+# Cortes de precios para los cuantiles en los extremos
+quant.inf <- quantile(ar_properties$price, probs=seq(0, 0.005, length.out = 6) )
+quant.sup <- quantile(ar_properties$price, probs=seq(.995, 1, length.out = 6) )
+
+quant.inf
+quant.sup
+```
+
+Analizando los resultados de zonaProp, la propiedad mas barata en venta en capital federal esta por sobre 50.000 U$S. Combinando este dato con la informacion de los cuartiles obtenida previamente, podemos asegurar que descartar los valores inferiores seria descartar menos del 0.5% de las muestras. En cuanto a valores superiores, se prosiguió a descartar el mismo porcentage de corte que para las muestras inferiores.
+
+```{r}
+
+ar_properties.sin.outliers = ar_properties %>% filter(
+    price > quant.inf['0.5%'] & price < quant.sup['99.5%'] )
+
+```
+
+Como caso de interes, tambien filtramos los outliers utilizando la tecnica de **isolation tree**, utilizando las variables de interes y filtrando una cantidad demejante de muestras, pero utilizando como criterio su puntage de *anomalia*
+
+```{r}
+# Cargamos la libreria necesaria
+suppressPackageStartupMessages(library("solitude"))
+
+# iniciamos el algoritmo
+iso <- solitude::isolationForest$new()
+iso$fit(ar_properties %>% select( c("rooms", "price", "surface_total") ) )
+ar_properties.sin.outliers.isolationtree <- ar_properties
+
+# Usamos los resultados para filtras las muestras mas anomalas, y luego descartamos esta columna
+ar_properties.sin.outliers.isolationtree$anomalyScore = iso$scores$anomaly_score
+ar_properties.sin.outliers.isolationtree <- ar_properties.sin.outliers.isolationtree %>% filter( anomalyScore < 0.6 ) %>% select( -c("anomalyScore") )
+```
+
+#### 6: Analisis exploratorios (III)
+
+```{r}
+# Calculamos las estadisticas, discriminando por tipo de propiedad
+tapply(ar_properties.sin.outliers$price, ar_properties.sin.outliers$property_type, summary.with.mean)
+
+# Realizamos el histograma, discriminando por tipo de propiedad
+ggplot(ar_properties.sin.outliers, aes(x=price, fill=property_type)) +
+    geom_histogram(alpha=0.5, position="identity", aes(y = ..density..)) +
+    geom_density(alpha=0.5) +
+    scale_x_log10()
+
+# Graficamos los boxplots
+ggplot(ar_properties.sin.outliers, aes(x=property_type, y=price, fill=property_type)) +
+    geom_boxplot() +
+    scale_y_log10()
+
+# Graficamos el correlograma
+ggcorr(ar_properties.sin.outliers[,get.numeric.columns(ar_properties.sin.outliers)], method = c("everything", "pearson"))
+```
+
+Se puede observar (con especial detalle en los boxplots) como gran cantidad de los outliers desaparecieron. Cabe destacar que esta es una tecnica un poco ingenua para la eliminacion de los mismos, ya que no considera la posibilidad de outliers debido a la relacion de las variables entre sí, y solamente descarta los extremos en cada dimension (en este caso, la dimension precio)
+
+#### 7: Modelo lineal
+
+##### 7.A: Generacion del modelo lineal
+
+```{r}
+#calculamos los modelos lineales indicados
+linear.model.surface <- lm(price ~ surface_total, data = ar_properties.sin.outliers)
+linear.model.rooms <- lm(price ~ rooms, data = ar_properties.sin.outliers)
+```
+
+##### 7.B: Descripcion de los modelos lineales
+
+superficie vs precio
+```{r}
+summary(linear.model.surface)
+```
+
+ambientes vs precio
+```{r}
+summary(linear.model.rooms)
+```
+
+##### 7.B (bis): Descripcion de los modelos lineales - isolation tree
+
+
+Comparamos que la cantidad de casos en ambos filtrados sea semejante
+```{r}
+
+nrow(ar_properties.sin.outliers)
+nrow(ar_properties.sin.outliers.isolationtree)
+
+```
+
+Analizamos los modelos:
+
+superficie vs precio
+```{r}
+summary(lm(price ~ surface_total, data = ar_properties.sin.outliers.isolationtree))
+
+```
+
+ambientes vs precio
+```{r}
+summary(lm(price ~ rooms, data = ar_properties.sin.outliers.isolationtree))
+```
+
+Y realizamos el correlograma para esta version de filtrado
+```{r}
+ggcorr(ar_properties.sin.outliers.isolationtree[,get.numeric.columns(ar_properties.sin.outliers.isolationtree)], method = c("everything", "pearson"))
+```
+
+
+
+##### 7.C: Analisis / conclusiones
+
+###### filtrado por extremos
+Se puede observar en los valores de R-squared (mayor en el caso de ambiente-precio) que la correlacion es mas fuete para esta variable (ya se podia observar este efecto en el correlograma). Tambien observamos como los residuos son menores para este modelo lineal. Dado estos motivos, el modelo de precio-ambiente parece ser un mejor predictor de precio que el de sueprficie-ambiente.
+
+###### filtrado por *isolation tree*
+Cuando el filtrado se realiza utilizando otra tecnica, se observa como los resultados anteriores se invierten: el modelo de area-precio se vuelve un mejor predictor en este caso; pero ademas se potencia, dado que este modelo (filtrado por *isolation tree*, y modelando area vs precio) es la que expresa una mayor correlacion que todos los otros casos; producto de haber filtrado no solo los valores extremos, sino tambien usando tecnicas mas avanzadas para detectar *outliers* de valores intermedios, que habrian sesgado el modelo a uno menor performante que el de ambientes vs precio (esto se observa claramente en los dispersogramas a continuacion)
+
+```{r}
+
+ggplot(ar_properties.sin.outliers, aes(x=rooms, y=price)) + geom_point(color="red") + geom_smooth(method='lm') + ggtitle("Precio vs Ambientes - filtrado ingenuo")
+
+
+ggplot(ar_properties.sin.outliers, aes(x=surface_total, y=price)) + geom_point(color="red") + geom_smooth(method='lm') + ggtitle("Precio vs Area - filtrado ingenuo")
+
+
+ggplot(ar_properties.sin.outliers.isolationtree, aes(x=rooms, y=price)) + geom_point(color="green") + geom_smooth(method='lm') + ggtitle("Precio vs Ambientes - filtrado por isolation tree")
+
+
+ggplot(ar_properties.sin.outliers.isolationtree, aes(x=surface_total, y=price)) + geom_point(color="green") + geom_smooth(method='lm') + ggtitle("Precio vs Area - filtrado por isolation tree")
+
+```
+
