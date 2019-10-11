@@ -11,9 +11,14 @@ output: html_notebook
 Procedemos a cargar el archivo de entrada y verificar la cantidad de variables y casos.
 Para ello tenemos que descomprimir el archivo antes de cargalo, y tabmien especificar el encoding correcto (`UTF-8`) para la carga correcta de caracteres especiales.
 
+Debido a que la carga de los `id`s cuesta mucho mas memoria que todo el resto y no proporciona informacion de utilidad para el analisis se descarta de entrada.
+
 ```{r}
+# carga libreria tidyverse
+suppressPackageStartupMessages(library(tidyverse))
+
 #carga de datos
-ar_properties <- read.csv(unz('ar_properties.zip', 'ar_properties.csv'), row.names = NULL, stringsAsFactors = TRUE, encoding = "UTF-8")
+ar_properties <- read.csv(unz('ar_properties.zip', 'ar_properties.csv'), row.names = NULL, stringsAsFactors = TRUE, encoding = "UTF-8") %>% select( -c('id') )
 
 #verificaion de casos y variables
 head(ar_properties)
@@ -26,8 +31,6 @@ nrow(ar_properties)
 Cargamos la libreria tidyverse para realizar los filtrados, y procedemos a extraer los casos de interes:
 
 ```{r}
-suppressPackageStartupMessages(library(tidyverse))
-
 # Filtrado de los casos deseados
 ar_properties <- ar_properties %>% filter(
     l1             == 'Argentina' &
@@ -45,7 +48,6 @@ Una vez filtrados los casos, seleccionamos las variables deseadas y reajustamos 
 ```{r}
 # Seleccion de las variables de interes
 ar_properties <- ar_properties %>% select(
-  id,
   l3,
   rooms,
   bedrooms,
@@ -85,7 +87,6 @@ Curiosamente, notamos que para el campo **l3** que corresponde al barrio porteñ
 ```{r}
 barrios.portenos.officiales <- c("Agronomía", "Almagro", "Balvanera", "Barracas", "Belgrano", "Boedo", "Caballito", "Chacarita", "Coghlan", "Colegiales", "Constitución", "Flores", "Floresta", "Boca", "Paternal", "Liniers", "Mataderos", "Monserrat", "Monte Castro", "Pompeya", "Nuñez", "Palermo", "Parque Avellaneda", "Parque Chacabuco", "Parque Chas", "Parque Patricios", "Puerto Madero", "Recoleta", "Retiro", "Saavedra", "San Cristobal", "San Nicolás", "San Telmo", "Velez Sarsfield", "Versalles", "Villa Crespo", "Villa del Parque", "Villa Devoto", "Villa General Mitre", "Villa Lugano", "Villa Luro", "Villa Ortuzar", "Villa Pueyrredón", "Villa Real", "Villa Riachuelo", "Villa Santa Rita", "Villa Soldati", "Villa Urquiza")
 sort(setdiff(unique(ar_properties$l3), barrios.portenos.officiales))
-
 ```
 
 Observamos como los barrios 'extra' corresponden a denominaciones no-oficiales de ciertas regions de la CABA.
@@ -106,7 +107,6 @@ get.numeric.columns <- function(df, columns.to.get=NULL) {
 
 # calculamos la correlacion de las variables numericas, descartando los casos incompletos
 cor(ar_properties[,get.numeric.columns(ar_properties)], use="complete.obs", method="pearson")
-
 ```
 
 
@@ -143,7 +143,6 @@ ncol(ar_properties)
 Obtenemos estadisticas de la variable precio. Generamos funciones que reutilizaremos mas tarde.
 
 ```{r}
-
 # Funcion para generar estadisticas con la media incluida
 summary.with.mean <- function(data)
 {
@@ -157,7 +156,6 @@ summary.with.mean(ar_properties$price)
 
 # Y realizamos un histograma
 ggplot(ar_properties, aes(x = price)) + geom_histogram()
-
 ```
 
 Notamos que hay un gran rango de precios, y que la mayoria de los valores se concentran en los valores mas bajos. Por ese motivo, repetimos el histograma pero utiliando una escala logaritmica para poder observar mejor la distribucion.
@@ -192,7 +190,6 @@ Graficamos los boxplots del precio por cada tipo de propiedad. Siguiendo la mism
 ggplot(ar_properties, aes(x=property_type, y=price, fill=property_type)) +
     geom_boxplot() +
     scale_y_log10()
-
 ```
 
 
@@ -221,13 +218,11 @@ quant.inf
 quant.sup
 ```
 
-Analizando los resultados de zonaProp, la propiedad mas barata en venta en capital federal esta por sobre 50.000 U$S. Combinando este dato con la informacion de los cuartiles obtenida previamente, podemos asegurar que descartar los valores inferiores a U$S 50.000 seria descartar menos del 0.5% de las muestras. En cuanto a valores superiores, se prosiguió a descartar el mismo porcentage de corte que para las muestras inferiores.
+Analizando los resultados de zonaProp, la propiedad mas barata en venta en capital federal esta por sobre 50.000 dolares. Combinando este dato con la informacion de los cuartiles obtenida previamente, podemos asegurar que descartar los valores inferiores a U$S 50.000 seria descartar menos del 0.5% de las muestras. En cuanto a valores superiores, se prosiguió a descartar el mismo porcentage de corte que para las muestras inferiores.
 
 ```{r}
-
 ar_properties.sin.outliers = ar_properties %>% filter(
     price > quant.inf['0.5%'] & price < quant.sup['99.5%'] )
-
 ```
 
 Como caso de interes, tambien filtramos los outliers utilizando la tecnica de *isolation tree*, utilizando las variables de interes y filtrando una cantidad demejante de muestras, pero utilizando como criterio su puntaje de *anomalia*
@@ -296,10 +291,8 @@ summary(linear.model.rooms)
 
 Verificamos que la cantidad de casos en ambos filtrados sea semejante
 ```{r}
-
 nrow(ar_properties.sin.outliers)
 nrow(ar_properties.sin.outliers.isolationtree)
-
 ```
 
 Analizamos los modelos:
@@ -307,7 +300,6 @@ Analizamos los modelos:
 superficie vs precio
 ```{r}
 summary(lm(price ~ surface_total, data = ar_properties.sin.outliers.isolationtree))
-
 ```
 
 ambientes vs precio
@@ -332,17 +324,12 @@ Se puede observar en los valores de R-squared (mayor en el caso de ambiente-prec
 Cuando el filtrado se realiza utilizando otra tecnica, se observa como los resultados anteriores se invierten: el modelo de area-precio se vuelve un mejor predictor en este caso; pero ademas se potencia, dado que este modelo (filtrado por *isolation tree*, y modelando area vs precio) es la que expresa una mayor correlacion que todos los otros casos; producto de haber filtrado no solo los valores extremos, sino tambien usando tecnicas mas avanzadas para detectar *outliers* de valores intermedios, que habrian sesgado el modelo a uno menor performante que el de ambientes vs precio (esto se observa claramente en los dispersogramas a continuacion)
 
 ```{r}
-
 ggplot(ar_properties.sin.outliers, aes(x=rooms, y=price)) + geom_point(color="red") + geom_smooth(method='lm') + ggtitle("Precio vs Ambientes - filtrado ingenuo")
-
 
 ggplot(ar_properties.sin.outliers, aes(x=surface_total, y=price)) + geom_point(color="red") + geom_smooth(method='lm') + ggtitle("Precio vs Area - filtrado ingenuo")
 
-
 ggplot(ar_properties.sin.outliers.isolationtree, aes(x=rooms, y=price)) + geom_point(color="green") + geom_smooth(method='lm') + ggtitle("Precio vs Ambientes - filtrado por isolation tree")
 
-
 ggplot(ar_properties.sin.outliers.isolationtree, aes(x=surface_total, y=price)) + geom_point(color="green") + geom_smooth(method='lm') + ggtitle("Precio vs Area - filtrado por isolation tree")
-
 ```
 
