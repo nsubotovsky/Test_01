@@ -1,8 +1,6 @@
 ---
 title: "Trabajo Practico 1"
-output:
-  html_document:
-    df_print: paged
+output: html_notebook
 ---
 
 
@@ -116,7 +114,7 @@ cor(ar_properties[,get.numeric.columns(ar_properties)], use="complete.obs", meth
 
 #### 3.A: Eliminacion de variables altamente correlacionadas
 
-Dado que las variables `rooms` y `bedrooms` presentan alta correlacion, procedemos a eliminar una de ellas, la de mayor cantaidad de faltantes (**bedrooms**)
+Dado que las variables `rooms` y `bedrooms` presentan alta correlacion, procedemos a eliminar una de ellas, la de mayor cantaidad de faltantes (`bedrooms`)
 
 ```{r}
 # eliminacion de la variable `bedrooms`
@@ -162,7 +160,7 @@ ggplot(ar_properties, aes(x = price)) + geom_histogram()
 
 ```
 
-Notamos que hay una gran variacion de precios, y que la mayoria de los valores se concentran en los valores mas bajos. Por ese motivo, repetimos el histograma pero utiliando una escala logaritmica para poder observar mejor la distribucion.
+Notamos que hay un gran rango de precios, y que la mayoria de los valores se concentran en los valores mas bajos. Por ese motivo, repetimos el histograma pero utiliando una escala logaritmica para poder observar mejor la distribucion.
 
 ```{r}
 ggplot(ar_properties, aes(x = price)) + geom_histogram(alpha=0.5, position="identity", aes(y = ..density..)) + scale_x_log10() + geom_density(alpha=0.5)
@@ -223,7 +221,7 @@ quant.inf
 quant.sup
 ```
 
-Analizando los resultados de zonaProp, la propiedad mas barata en venta en capital federal esta por sobre 50.000 U$S. Combinando este dato con la informacion de los cuartiles obtenida previamente, podemos asegurar que descartar los valores inferiores seria descartar menos del 0.5% de las muestras. En cuanto a valores superiores, se prosiguió a descartar el mismo porcentage de corte que para las muestras inferiores.
+Analizando los resultados de zonaProp, la propiedad mas barata en venta en capital federal esta por sobre 50.000 U$S. Combinando este dato con la informacion de los cuartiles obtenida previamente, podemos asegurar que descartar los valores inferiores a U$S 50.000 seria descartar menos del 0.5% de las muestras. En cuanto a valores superiores, se prosiguió a descartar el mismo porcentage de corte que para las muestras inferiores.
 
 ```{r}
 
@@ -232,13 +230,13 @@ ar_properties.sin.outliers = ar_properties %>% filter(
 
 ```
 
-Como caso de interes, tambien filtramos los outliers utilizando la tecnica de **isolation tree**, utilizando las variables de interes y filtrando una cantidad demejante de muestras, pero utilizando como criterio su puntage de *anomalia*
+Como caso de interes, tambien filtramos los outliers utilizando la tecnica de *isolation tree*, utilizando las variables de interes y filtrando una cantidad demejante de muestras, pero utilizando como criterio su puntaje de *anomalia*
 
 ```{r}
 # Cargamos la libreria necesaria
 suppressPackageStartupMessages(library("solitude"))
 
-# iniciamos el algoritmo
+# iniciamos el algoritmo utilizando solamente las variables que vamos a correlacionar
 iso <- solitude::isolationForest$new()
 iso$fit(ar_properties %>% select( c("rooms", "price", "surface_total") ) )
 ar_properties.sin.outliers.isolationtree <- ar_properties
@@ -269,7 +267,7 @@ ggplot(ar_properties.sin.outliers, aes(x=property_type, y=price, fill=property_t
 ggcorr(ar_properties.sin.outliers[,get.numeric.columns(ar_properties.sin.outliers)], method = c("everything", "pearson"))
 ```
 
-Se puede observar (con especial detalle en los boxplots) como gran cantidad de los outliers desaparecieron. Cabe destacar que esta es una tecnica un poco ingenua para la eliminacion de los mismos, ya que no considera la posibilidad de outliers debido a la relacion de las variables entre sí, y solamente descarta los extremos en cada dimension (en este caso, la dimension precio)
+Se puede observar (con especial detalle en los boxplots) como gran cantidad de los outliers desaparecieron. Cabe destacar que esta es una tecnica un poco ingenua para la eliminacion de los mismos, ya que no considera la posibilidad de outliers debido a la relacion de las variables entre sí, y solamente descarta los extremos en cada dimension (en este caso, la dimension `precio`)
 
 #### 7: Modelo lineal
 
@@ -296,7 +294,7 @@ summary(linear.model.rooms)
 ##### 7.B (bis): Descripcion de los modelos lineales - isolation tree
 
 
-Comparamos que la cantidad de casos en ambos filtrados sea semejante
+Verificamos que la cantidad de casos en ambos filtrados sea semejante
 ```{r}
 
 nrow(ar_properties.sin.outliers)
@@ -326,10 +324,11 @@ ggcorr(ar_properties.sin.outliers.isolationtree[,get.numeric.columns(ar_properti
 
 ##### 7.C: Analisis / conclusiones
 
-###### filtrado por extremos
+###### **filtrado por extremos**
 Se puede observar en los valores de R-squared (mayor en el caso de ambiente-precio) que la correlacion es mas fuete para esta variable (ya se podia observar este efecto en el correlograma). Tambien observamos como los residuos son menores para este modelo lineal. Dado estos motivos, el modelo de precio-ambiente parece ser un mejor predictor de precio que el de sueprficie-ambiente.
 
-###### filtrado por *isolation tree*
+
+###### **filtrado por *isolation tree***
 Cuando el filtrado se realiza utilizando otra tecnica, se observa como los resultados anteriores se invierten: el modelo de area-precio se vuelve un mejor predictor en este caso; pero ademas se potencia, dado que este modelo (filtrado por *isolation tree*, y modelando area vs precio) es la que expresa una mayor correlacion que todos los otros casos; producto de haber filtrado no solo los valores extremos, sino tambien usando tecnicas mas avanzadas para detectar *outliers* de valores intermedios, que habrian sesgado el modelo a uno menor performante que el de ambientes vs precio (esto se observa claramente en los dispersogramas a continuacion)
 
 ```{r}
