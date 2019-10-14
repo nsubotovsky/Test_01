@@ -14,8 +14,9 @@ Para ello tenemos que descomprimir el archivo antes de cargalo, y tabmien especi
 Debido a que la carga de los `id`s cuesta mucho mas memoria que todo el resto y no proporciona informacion de utilidad para el analisis se descarta de entrada.
 
 ```{r}
-# carga libreria tidyverse
+# carga librerias tidyverse y ggplot2
 suppressPackageStartupMessages(library(tidyverse))
+suppressPackageStartupMessages(library(ggplot2))
 
 #carga de datos
 ar_properties <- read.csv(unz('ar_properties.zip', 'ar_properties.csv'), row.names = NULL, stringsAsFactors = TRUE, encoding = "UTF-8") %>% select( -c('id') )
@@ -109,6 +110,12 @@ get.numeric.columns <- function(df, columns.to.get=NULL) {
 cor(ar_properties[,get.numeric.columns(ar_properties)], use="complete.obs", method="pearson")
 ```
 
+Notamos como la correlacion mas alta (0.921) se da entre `rooms` y `bedrooms` (lo cual tiene sentido, siendo que la relacion tiende a ser del tipo `rooms` = `bedrooms` + 1 en la mayoria de los departamentos, correspondiendo el '+1' al *living* ). Este dato nos permitira decidir en un paso posterior a decidir como tratar los casos faltantes.
+Tambien notamos otra correlacion alta entre superficie total y superficie cubierta, también esperada, ya que los departamentos / casas / PHs mas grandes tienden a tener patios / balcones o jardines tambien mas grandes.
+El otro caso de alta correlacion se da entre baños y ambientes, tambien siendo una relacion esperable, de naturaleza semejante a la descrita previamente (las viviendas con mas ambientes tienden a tener mayor cantidad de baños)
+Lo ultimo a destacar, es que el precio no parece estar tan correlacionado con la superficie (lo cual se presenta como inusual, ya que es común que uno de los factores determinantes del precio de una propiedad es la cantidad de metros cuadrados). Este aspecto se analizará luego con mas detalle.
+
+
 
 ### 3: Preparacion de datos
 
@@ -163,6 +170,8 @@ Notamos que hay un gran rango de precios, y que la mayoria de los valores se con
 ```{r}
 ggplot(ar_properties, aes(x = price)) + geom_histogram(alpha=0.5, position="identity", aes(y = ..density..)) + scale_x_log10() + geom_density(alpha=0.5)
 ```
+Notamos que la distribucion final de precios parece ser bimodal, que podria significar la presencia de poblaciones distintas dentro de la muestra. Tambien se observa que la distribucion (observando la escala logaritmica) presenta una asimetria, con cola pesada a derecha.
+
 
 #### 4.B: Obtencion de estadisticas por tipo de propiedad
 
@@ -179,6 +188,7 @@ ggplot(ar_properties, aes(x=price, fill=property_type)) +
     scale_x_log10()
 ```
 
+Al discriminar por tipo de casa, se detecta que la 'bimodalidad' observada antes no es solamente producto de diferentes tipos de propiedades, ya que tanto PHs como departamentos presentan un mismo "valle" alrededor de los $200.000 dolares. Tambien se puede observar que si bien se notan ciertas asimetrias en las distribuciones, individualmente no parecen ser tan acentuadas como cuando se combinan todas las poblaciones (o sea, la combinacion de las distintas dsitribuciones que estan centradas en distintos puntos acentua la asimetria de distribucion combinada)
 
 
 #### 4.C: Boxplots
@@ -192,8 +202,7 @@ ggplot(ar_properties, aes(x=property_type, y=price, fill=property_type)) +
     scale_y_log10()
 ```
 
-
-Obervamos como los precios tienen una tendencia del tipo Casa > PH > depto (ya obervada tambien previamente en los histogramas)
+Observando los boxplots, se observa claramente como los precios tienen una tendencia del tipo Casa > PH > depto (que ya podia ser apreciada en los histogramas previos, pero aun mas claro aca). Tambien se observa como los departamentos parecen tener la mayor dispersion de precios, al igual que mayor cantidad de outliers.
 
 
 #### 4.D: Correlograma
@@ -204,6 +213,8 @@ suppressPackageStartupMessages(library(GGally))
 # Graficamos el correlograma
 ggcorr(ar_properties[,get.numeric.columns(ar_properties)], method = c("everything", "pearson")) 
 ```
+
+Las conclusiones que se pueden obtener de este grafico son las mismas que las observadas en el punto 2.B.
 
 #### 5: Outliers
 
@@ -220,12 +231,29 @@ quant.sup
 
 Analizando los resultados de zonaProp, la propiedad mas barata en venta en capital federal esta por sobre 50.000 dolares. Combinando este dato con la informacion de los cuartiles obtenida previamente, podemos asegurar que descartar los valores inferiores a U$S 50.000 seria descartar menos del 0.5% de las muestras. En cuanto a valores superiores, se prosiguió a descartar el mismo porcentage de corte que para las muestras inferiores.
 
+Tambien se procede a recortar usando los mismos porcentajes en las dimensiones de `rooms` y de `surface_total`, ya que son las variables que estaremos modelando a continuacion, y calculamos la cantidad de muestras filtradas (notar que debido a que la eliminacion de los extremos se hizo de forma simultanea, la cantidad total de muestras puede no coincidir al 3% ya que es probable que los casos que poseen valores extremos de una dimension concuerden con los extremos de otra de las dimensiones)
+
 ```{r}
 ar_properties.sin.outliers = ar_properties %>% filter(
-    price > quant.inf['0.5%'] & price < quant.sup['99.5%'] )
+    price >= quantile(ar_properties$price, 0.005) &
+    price <= quantile(ar_properties$price, 0.995) &
+    rooms >= quantile(ar_properties$rooms, 0.005) &
+    rooms <= quantile(ar_properties$rooms, 0.995) &
+    surface_total <= quantile(ar_properties$surface_total, 0.995) &
+    surface_total <= quantile(ar_properties$surface_total, 0.995) )
+
+porcentaje=nrow(ar_properties.sin.outliers)/nrow(ar_properties)
+
+reporte.filtrado <- function( filtrado, original )
+{
+  df <- data.frame( original=nrow(original), filtrado=nrow(filtrado), porcentaje=(nrow(filtrado)/nrow(original)*100) )
+  return(df)
+}
+
+reporte.filtrado( ar_properties.sin.outliers, ar_properties )
 ```
 
-Como caso de interes, tambien filtramos los outliers utilizando la tecnica de *isolation tree*, utilizando las variables de interes y filtrando una cantidad demejante de muestras, pero utilizando como criterio su puntaje de *anomalia*
+Como caso de interes, tambien filtramos los outliers utilizando la tecnica de *isolation tree*, utilizando las variables de interes y filtrando una cantidad demejante de muestras, pero utilizando como criterio su puntaje de *anomalia*. Para ser consistentes con las comparaciones, eliminaremos la misma cantidad de muestras.
 
 ```{r}
 # Cargamos la libreria necesaria
@@ -238,8 +266,22 @@ ar_properties.sin.outliers.isolationtree <- ar_properties
 
 # Usamos los resultados para filtras las muestras mas anomalas, y luego descartamos esta columna
 ar_properties.sin.outliers.isolationtree$anomalyScore = iso$scores$anomaly_score
-ar_properties.sin.outliers.isolationtree <- ar_properties.sin.outliers.isolationtree %>% filter( anomalyScore < 0.6 ) %>% select( -c("anomalyScore") )
+ar_properties.sin.outliers.isolationtree <- ar_properties.sin.outliers.isolationtree %>% filter( anomalyScore <= quantile(ar_properties.sin.outliers.isolationtree$anomalyScore, porcentaje) ) %>% select( -c("anomalyScore") )
+
+#verificamos que la cantidad eliminada sea semejante en ambos casos
+reporte.filtrado( ar_properties.sin.outliers.isolationtree, ar_properties )
 ```
+
+Finalmente, tambien tomamos otro caso de interes, un filtrado aun mas ingenuo que el primero, en el que solo recortamos los valores extremos pero unicamente de la dimension `precio`, tomando precauciones para que el tamaño de las muestras sea comparable.
+
+```{r}
+ar_properties.sin.outliers.ingenuo = ar_properties %>% filter(
+    price >= quantile(ar_properties$price, (1-porcentaje)/2) &
+    price <= quantile(ar_properties$price, 1-(1-porcentaje)/2) )
+      
+reporte.filtrado( ar_properties.sin.outliers.ingenuo, ar_properties )
+```
+
 
 #### 6: Analisis exploratorios (III)
 
@@ -262,74 +304,72 @@ ggplot(ar_properties.sin.outliers, aes(x=property_type, y=price, fill=property_t
 ggcorr(ar_properties.sin.outliers[,get.numeric.columns(ar_properties.sin.outliers)], method = c("everything", "pearson"))
 ```
 
-Se puede observar (con especial detalle en los boxplots) como gran cantidad de los outliers desaparecieron. Cabe destacar que esta es una tecnica un poco ingenua para la eliminacion de los mismos, ya que no considera la posibilidad de outliers debido a la relacion de las variables entre sí, y solamente descarta los extremos en cada dimension (en este caso, la dimension `precio`)
+
+Se puede observar (con especial detalle en los boxplots) como gran cantidad de los outliers desaparecieron. Cabe destacar que esta es una tecnica un poco ingenua para la eliminacion de los mismos, ya que no considera la posibilidad de outliers debido a la relacion de las variables entre sí, y solamente descarta los extremos en cada dimension. Aun asi, obervamos como aumento la correlacion entre varios pares de variables que previamente estaban debilmente correlacionadas (precio-area total, area total-habitaciones, baños-supreficie total)
 
 #### 7: Modelo lineal
 
-##### 7.A: Generacion del modelo lineal
+##### 7.A/B: Generacion del modelo lineal / descripcion
 
 ```{r}
-#calculamos los modelos lineales indicados
-linear.model.surface <- lm(price ~ surface_total, data = ar_properties.sin.outliers)
-linear.model.rooms <- lm(price ~ rooms, data = ar_properties.sin.outliers)
+
+auto.lm <- function( description, data, xVar )
+{
+  lm.result <- lm(data$price~data[[xVar]])
+  sum <- summary( lm.result )
+  print( description )
+  print( sum )
+  return( data.frame(
+    descripcion=description,
+    intercept=sum$coefficients[1],
+    coeff=sum$coefficients[2],
+    rsquaredAdj=sum$adj.r.squared ) )
+}
+
+
+result <- auto.lm('con outliers vs superficie', ar_properties, 'surface_total')
+result <- rbind(result, auto.lm('con outliers vs ambientes', ar_properties, 'rooms') )
+
+result <- rbind(result, auto.lm('sin outliers vs superficie', ar_properties.sin.outliers, 'surface_total') )
+result <- rbind(result, auto.lm('sin outliers vs ambientes', ar_properties.sin.outliers, 'rooms')  )
+result <- rbind(result, auto.lm('sin outliers 1D vs superficie', ar_properties.sin.outliers.ingenuo, 'surface_total') )
+result <- rbind(result, auto.lm('sin outliers 1D vs ambientes', ar_properties.sin.outliers.ingenuo, 'rooms') )
+result <- rbind(result, auto.lm('sin outliers - isolation tree vs superficie', ar_properties.sin.outliers.isolationtree, 'surface_total') )
+result <- rbind(result, auto.lm('sin outliers - isolation tree vs ambientes', ar_properties.sin.outliers.isolationtree, 'rooms') )
+result
 ```
-
-##### 7.B: Descripcion de los modelos lineales
-
-superficie vs precio
-```{r}
-summary(linear.model.surface)
-```
-
-ambientes vs precio
-```{r}
-summary(linear.model.rooms)
-```
-
-##### 7.B (bis): Descripcion de los modelos lineales - isolation tree
-
-
-Verificamos que la cantidad de casos en ambos filtrados sea semejante
-```{r}
-nrow(ar_properties.sin.outliers)
-nrow(ar_properties.sin.outliers.isolationtree)
-```
-
-Analizamos los modelos:
-
-superficie vs precio
-```{r}
-summary(lm(price ~ surface_total, data = ar_properties.sin.outliers.isolationtree))
-```
-
-ambientes vs precio
-```{r}
-summary(lm(price ~ rooms, data = ar_properties.sin.outliers.isolationtree))
-```
-
-Y realizamos el correlograma para esta version de filtrado
-```{r}
-ggcorr(ar_properties.sin.outliers.isolationtree[,get.numeric.columns(ar_properties.sin.outliers.isolationtree)], method = c("everything", "pearson"))
-```
-
 
 
 ##### 7.C: Analisis / conclusiones
 
-###### **filtrado por extremos**
-Se puede observar en los valores de R-squared (mayor en el caso de ambiente-precio) que la correlacion es mas fuete para esta variable (ya se podia observar este efecto en el correlograma). Tambien observamos como los residuos son menores para este modelo lineal. Dado estos motivos, el modelo de precio-ambiente parece ser un mejor predictor de precio que el de sueprficie-ambiente.
+El mejor modelo predictor de todos de precio es el model de precio vs superficie del fitlrado mediante *isolation tree*, lo cual es indicador de que es un metodo mas eficiente de deteccion de outliers, debido a la posibilidad del mismo de detectar extremos en multiples dimensiones en conjunto; aunque la mejora no sea sustancial en comparacion con el metodo de filtrado de extremos en cada dimension.
 
+Tambien podemos notar como si no se eliminan los outliers (o si se eliminana de una forma poco eficiente) la efectividad del modelo resultante puede variar drasticamente, como se puede analizar en los casos *con outliers* y *sin outliers 1D* vs superficie; y en algunos casos hasta empeorar (ver con outliers vs superficie en comparacion con sin outliers 1D vs superficie)
 
-###### **filtrado por *isolation tree***
-Cuando el filtrado se realiza utilizando otra tecnica, se observa como los resultados anteriores se invierten: el modelo de area-precio se vuelve un mejor predictor en este caso; pero ademas se potencia, dado que este modelo (filtrado por *isolation tree*, y modelando area vs precio) es la que expresa una mayor correlacion que todos los otros casos; producto de haber filtrado no solo los valores extremos, sino tambien usando tecnicas mas avanzadas para detectar *outliers* de valores intermedios, que habrian sesgado el modelo a uno menor performante que el de ambientes vs precio (esto se observa claramente en los dispersogramas a continuacion)
+Cabe destacar tambien que cuando el modelo se hace contra la variable ambientes, el resultado tiende a ser mas "robusto", desde el punto de vista que el r^2 del mismo no tiende a variar de forma tan extrema como con los otros modelos al cambiar la tecnica de filtrado de outliers. Esto tiene como efecto que, dependiendo del metodo de filtrado, puede cambiar la variable que seria "mejor" predictor del precio.
 
+Para poder visualizar mejor el efecto de los outliers en las diferentes formas de filtrado, se procede a continuacion a graficar el modelo resultando, denotando que casos son eliminados con los diferentes metodos.
 ```{r}
-ggplot(ar_properties.sin.outliers, aes(x=rooms, y=price)) + geom_point(color="red") + geom_smooth(method='lm') + ggtitle("Precio vs Ambientes - filtrado ingenuo")
+auto.plot <- function( title, full.df, filtered.df, yvar='rooms' )
+{
+  removed <- setdiff(full.df, filtered.df)
+  removed$source = 'outliers'
+  filtered.df$source = 'normal'
+  full.with.source <- rbind( filtered.df, removed )
+  ggplot(full.with.source, aes_string(x=yvar, y="price", color="source")) +
+     geom_point() +
+     geom_smooth(method='lm', data=filtered.df) +
+     xlim(0, ifelse( yvar=='rooms' , max(full.df$rooms), 5000)) +
+     ggtitle( title )
+}
 
-ggplot(ar_properties.sin.outliers, aes(x=surface_total, y=price)) + geom_point(color="red") + geom_smooth(method='lm') + ggtitle("Precio vs Area - filtrado ingenuo")
+auto.plot( 'ambientes - sin outliers extremos', ar_properties, ar_properties.sin.outliers, yvar='rooms')
+auto.plot( 'ambientes - sin outliers precio solamente', ar_properties, ar_properties.sin.outliers.ingenuo, yvar='rooms')
+auto.plot( 'ambientes - sin outliers isolationTree', ar_properties, ar_properties.sin.outliers.isolationtree, yvar='rooms')
 
-ggplot(ar_properties.sin.outliers.isolationtree, aes(x=rooms, y=price)) + geom_point(color="green") + geom_smooth(method='lm') + ggtitle("Precio vs Ambientes - filtrado por isolation tree")
-
-ggplot(ar_properties.sin.outliers.isolationtree, aes(x=surface_total, y=price)) + geom_point(color="green") + geom_smooth(method='lm') + ggtitle("Precio vs Area - filtrado por isolation tree")
+auto.plot( 'area - sin outliers extremos', ar_properties, ar_properties.sin.outliers, yvar='surface_total')
+auto.plot( 'area - sin outliers precio solamente', ar_properties, ar_properties.sin.outliers.ingenuo, yvar='surface_total')
+auto.plot( 'area - sin outliers isolationTree', ar_properties, ar_properties.sin.outliers.isolationtree, yvar='surface_total')
 ```
+En estos graficos se puede apreciar como isolation tree permite detectar outliers no solamente en los extremos, sino en la mitad de los rangos tambien (aunque esto se notaria aun mejor en un grafico de 3 dimensiones, donde en las tecnicas simples se veria que los puntos normales estan confinados dentro de un rectangulo, no siendo asi en el caso de isolation tree)
 
