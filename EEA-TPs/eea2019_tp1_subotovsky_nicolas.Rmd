@@ -266,6 +266,7 @@ ar_properties.sin.outliers.isolationtree <- ar_properties
 
 # Usamos los resultados para filtras las muestras mas anomalas, y luego descartamos esta columna
 ar_properties.sin.outliers.isolationtree$anomalyScore = iso$scores$anomaly_score
+ar_properties.isolationtree <- ar_properties.sin.outliers.isolationtree #backup de variable
 ar_properties.sin.outliers.isolationtree <- ar_properties.sin.outliers.isolationtree %>% filter( anomalyScore <= quantile(ar_properties.sin.outliers.isolationtree$anomalyScore, porcentaje) ) %>% select( -c("anomalyScore") )
 
 #verificamos que la cantidad eliminada sea semejante en ambos casos
@@ -339,14 +340,21 @@ result <- rbind(result, auto.lm('sin outliers - isolation tree vs ambientes', ar
 result
 ```
 
+###### **Interpretacion de los parametros**
+
+Si comparamos los distintos modelos en funcion del R^2^ ajustado, interpretando que este parametro es el que indica cuan mejor predictor de precio es el modelo (representando el porcentaje de la variacion explicado, siendo mas alto mejor), observamos que los dos modelos que mejor ajustan son  el de precio vs area, en los casos de fitlrados por extremos y filtrado por isolation tree. Tambien observamos los p-valores en todos los casos (excepto el filtrado 1D para el $\beta_0$) son siempre muy signifcativos (p<0.001), con lo cual podemos asegurar que existe una dependencia entre el precio y las otras 2 variables (ambientse y superficie)
+El modelo presenta 2 parametros para la prediccion: intercept (o $\beta_0$) = ~39,000, que representaria el valor que estimaria para una propiedad de 0 metros cuadradaos (que igual hay que notar que es un extremo teorico, ya que el modelo ajusta mejor en la zona donde x es igual a la media de las muestras, y en este caso carece de sentido interpretar este parametro de forma independiente), y el coefficiente ($\beta_1$) = ~2,200 que seria mejor interpretado como "cuanto varia el precio de una propiedad por cada m^2^ adicional".
+Usando la misma logica, para el modelo que mejor ajusta de precio vs ambientes, se estima que cada ambiente extra varia el precio total en promedio ~ $93,000
+
+
 
 ##### 7.C: Analisis / conclusiones
 
-El mejor modelo predictor de todos de precio es el model de precio vs superficie del fitlrado mediante *isolation tree*, lo cual es indicador de que es un metodo mas eficiente de deteccion de outliers, debido a la posibilidad del mismo de detectar extremos en multiples dimensiones en conjunto; aunque la mejora no sea sustancial en comparacion con el metodo de filtrado de extremos en cada dimension.
+El mejor modelo predictor de todos (usando R^2^ como parametro para comparar modelos) de precio es el model de precio vs superficie del fitlrado mediante *isolation tree*, lo cual es indicador de que es un metodo mas eficiente de deteccion de outliers, debido a la posibilidad del mismo de detectar extremos en multiples dimensiones en conjunto; aunque la mejora no sea sustancial en comparacion con el metodo de filtrado de extremos en cada dimension.
 
 Tambien podemos notar como si no se eliminan los outliers (o si se eliminana de una forma poco eficiente) la efectividad del modelo resultante puede variar drasticamente, como se puede analizar en los casos *con outliers* y *sin outliers 1D* vs superficie; y en algunos casos hasta empeorar (ver con outliers vs superficie en comparacion con sin outliers 1D vs superficie)
 
-Cabe destacar tambien que cuando el modelo se hace contra la variable ambientes, el resultado tiende a ser mas "robusto", desde el punto de vista que el r^2 del mismo no tiende a variar de forma tan extrema como con los otros modelos al cambiar la tecnica de filtrado de outliers. Esto tiene como efecto que, dependiendo del metodo de filtrado, puede cambiar la variable que seria "mejor" predictor del precio.
+Cabe destacar tambien que cuando el modelo se hace contra la variable ambientes, el resultado tiende a ser mas "robusto", desde el punto de vista que el r^2^ del mismo no tiende a variar de forma tan extrema como con los otros modelos al cambiar la tecnica de filtrado de outliers. Esto tiene como efecto que, dependiendo del metodo de filtrado, puede cambiar la variable que seria "mejor" predictor del precio.
 
 Para poder visualizar mejor el efecto de los outliers en las diferentes formas de filtrado, se procede a continuacion a graficar el modelo resultando, denotando que casos son eliminados con los diferentes metodos.
 ```{r}
@@ -358,7 +366,7 @@ auto.plot <- function( title, full.df, filtered.df, yvar='rooms' )
   full.with.source <- rbind( filtered.df, removed )
   ggplot(full.with.source, aes_string(x=yvar, y="price", color="source")) +
      geom_point() +
-     geom_smooth(method='lm', data=filtered.df) +
+     geom_smooth(method='lm', data=filtered.df, color="blue") +
      xlim(0, ifelse( yvar=='rooms' , max(full.df$rooms), 5000)) +
      ggtitle( title )
 }
