@@ -1,6 +1,11 @@
 ---
 title: "Trabajo Practico 1"
-output: html_notebook
+output:
+  html_notebook:
+    theme: spacelab
+    toc: yes
+    toc_float: yes
+    df_print: paged
 ---
 
 
@@ -11,7 +16,6 @@ output: html_notebook
 Procedemos a cargar el archivo de entrada y verificar la cantidad de variables y casos.
 Para ello tenemos que descomprimir el archivo antes de cargalo, y tabmien especificar el encoding correcto (`UTF-8`) para la carga correcta de caracteres especiales.
 
-Debido a que la carga de los `id`s cuesta mucho mas memoria que todo el resto y no proporciona informacion de utilidad para el analisis se descarta de entrada.
 
 ```{r}
 # carga librerias tidyverse y ggplot2
@@ -19,11 +23,11 @@ suppressPackageStartupMessages(library(tidyverse))
 suppressPackageStartupMessages(library(ggplot2))
 
 #carga de datos
-ar_properties <- read.csv(unz('ar_properties.zip', 'ar_properties.csv'), row.names = NULL, stringsAsFactors = TRUE, encoding = "UTF-8") %>% select( -c('id') )
+ar_properties <- read.csv(unz('ar_properties.zip', 'ar_properties.csv'), row.names = NULL, stringsAsFactors = TRUE, encoding = "UTF-8")
 
 #verificaion de casos y variables
-head(ar_properties)
 nrow(ar_properties)
+summary(ar_properties)
 ```
 
 
