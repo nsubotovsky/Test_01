@@ -1,0 +1,109 @@
+---
+title: "Trabajo Practico 2"
+author: Nicolas Subotovsky
+output:
+  html_notebook:
+    theme: spacelab
+    toc: yes
+    toc_float: yes
+    df_print: paged
+---
+
+# Regresion Lineal Multiple
+
+### Carga de datos
+
+Cargamos los datos e inspeccionamos brevemente las variables y sus tipos 
+
+```{r}
+# carga librerias tidyverse y ggplot2
+suppressPackageStartupMessages(library(tidyverse))
+suppressPackageStartupMessages(library(ggplot2))
+
+ar_properties <- readRDS('ar_properties.rds') %>% select( -c('id') )
+ar_properties$l3 <- as.factor(ar_properties$l3)
+ar_properties$property_type <- as.factor(ar_properties$property_type)
+    
+nrow(ar_properties)
+glimpse(ar_properties)
+```
+
+Observamos 5 variables del tipo numericas (`rooms`, `bathrooms`, `surface_total`, `surface_covered` y `price`), y 2 categoricas (`property_type` y `l3`)
+
+
+
+### Variables Dummy
+
+Para realizar el modelo, convertimos las variables categoricas en variables *dummies* (1 variable por cada categoria). Inspeccionamos el resultado y observamos que la cantidad de variables aumento considerablemente, especialmente por la variable categorica `l3`
+
+
+```{r}
+library(fastDummies)
+ar_properties_dummies <- fastDummies::dummy_cols( ar_properties ) %>% select( -c('l3','property_type') )
+glimpse(ar_properties_dummies)
+```
+
+### Modelo de regresion lineal
+
+```{r}
+prices <- ar_properties_dummies$price
+variables <- ar_properties_dummies %>% select( -c('price') )
+model <- lm(prices ~ ., data=variables)
+summary(model)
+```
+Observaciones:
+
+* La mayoria (pero no todos) los coeficientes figuran como significativos. Para los barrios de Retiro y Colegiales, pareceria que estos no afectan al precio; pero podria interpretarse tambien que esto se debe a que estos barrios se encuentran cerca del promedio de precios, y no *tiran* el previo final ni hacia arriba ni hacia abajo
+* Los coeficientes grandes para las variables dummies de l3 parecerian indicar en general los barrios *caros*, y los coeficientes bajos los barrios *baratos*
+* Siempre hay un caso de las variables dummies con coeficiente N/A, producto de la dependencia lineal entre esta y el resto de las variables dummies (por como fue construida)
+* Contrario a lo esperado, el coeficiente de la variable `room` da negativo (uno esperaria que a mayor cantidad de dambientes, mayor precio). Este efecto se podria explicar si observamos las correlaciones de las variables, y notamos como `room` esta fuertemente correlacionada con muchas de las otras variables que determinan el precio. Se podria decir que el efecto *mayor* de "a mas ambientes, mas cara la propiedad" esta representada por la combinacion de las otras variables, y que en este caso la variable `room` termina reflejando mas ruido que otra cosa.
+ 
+
+#### Correlograma
+
+Para entender un poco mejor los resultados obtenidos, se grafica un correlograma donde solo figuran las variables con mayor correlacion ( > 0.4)
+
+
+```{r}
+suppressPackageStartupMessages(library(GGally))
+#ggcorr(ar_properties_dummies, method = c("everything", "pearson"))
+correlation <- cor(ar_properties_dummies, method = "pearson")
+correlation <- as.data.frame(as.table(correlation)) %>% filter( Freq < 1.0 & ( Freq>0.4 | Freq< -0.4) )
+correlatedVars <- unique(c(as.character(correlation$Var1), as.character(correlation$Var2)))
+
+
+# Graficamos el correlograma
+ggcorr(ar_properties_dummies[,correlatedVars], method = c("everything", "pearson")) 
+
+```
+
+### predict part
+
+```{r}
+new=ar_properties[FALSE,]
+new[1,] = list('Abasto',3,2,120,120,NA,'Departamento')
+new_dummies <- fastDummies::dummy_cols( new )
+new_dummies <- new_dummies %>% select( -c('price') )
+
+
+predict(model, new_dummies, se.fit = TRUE)
+
+
+
+new=ar_properties[FALSE,]
+new[1,] = list('Balvanera',2,3,100,80,NA,'PH')
+new_dummies <- fastDummies::dummy_cols( new )
+new_dummies <- new_dummies %>% select( -c('price') )
+
+
+predict(model, new_dummies, se.fit = TRUE)
+
+
+
+```
+
+
+
+
+
+
