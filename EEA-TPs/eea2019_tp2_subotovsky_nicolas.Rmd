@@ -9,9 +9,9 @@ output:
     df_print: paged
 ---
 
-# Regresion Lineal Multiple
+# 1. Regresion Lineal Multiple
 
-### Carga de datos
+### a. Carga de datos
 
 Cargamos los datos e inspeccionamos brevemente las variables y sus tipos 
 
@@ -20,10 +20,13 @@ Cargamos los datos e inspeccionamos brevemente las variables y sus tipos
 suppressPackageStartupMessages(library(tidyverse))
 suppressPackageStartupMessages(library(ggplot2))
 
+#Cargamos datos y eliminamos columna id que no ayuda al analisis
 ar_properties <- readRDS('ar_properties.rds') %>% select( -c('id') )
-ar_properties$l3 <- as.factor(ar_properties$l3)
-ar_properties$property_type <- as.factor(ar_properties$property_type)
-    
+
+#Convertimos en factores las variables tipo chr
+ar_properties <- ar_properties %>% mutate_if( is.character, as.factor )
+
+#Inspeccionamos los datos
 nrow(ar_properties)
 glimpse(ar_properties)
 ```
@@ -32,78 +35,239 @@ Observamos 5 variables del tipo numericas (`rooms`, `bathrooms`, `surface_total`
 
 
 
-### Variables Dummy
-
-Para realizar el modelo, convertimos las variables categoricas en variables *dummies* (1 variable por cada categoria). Inspeccionamos el resultado y observamos que la cantidad de variables aumento considerablemente, especialmente por la variable categorica `l3`
-
+### b. Modelo de regresion lineal
 
 ```{r}
-library(fastDummies)
-ar_properties_dummies <- fastDummies::dummy_cols( ar_properties ) %>% select( -c('l3','property_type') )
-glimpse(ar_properties_dummies)
-```
-
-### Modelo de regresion lineal
-
-```{r}
-prices <- ar_properties_dummies$price
-variables <- ar_properties_dummies %>% select( -c('price') )
-model <- lm(prices ~ ., data=variables)
+# Calculamos el modelo
+model <- lm(price~., data=ar_properties)
 summary(model)
 ```
 Observaciones:
 
-* La mayoria (pero no todos) los coeficientes figuran como significativos. Para los barrios de Retiro y Colegiales, pareceria que estos no afectan al precio; pero podria interpretarse tambien que esto se debe a que estos barrios se encuentran cerca del promedio de precios, y no *tiran* el previo final ni hacia arriba ni hacia abajo
+* La mayoria (pero no todos) los coeficientes figuran como significativos. Para los barrios de Retiro y Colegiales, pareceria que estos no afectan al precio; pero podria interpretarse tambien que esto se debe a que estos barrios se encuentran cerca del promedio de precios, y no *tiran* el precio final ni hacia arriba ni hacia abajo
 * Los coeficientes grandes para las variables dummies de l3 parecerian indicar en general los barrios *caros*, y los coeficientes bajos los barrios *baratos*
-* Siempre hay un caso de las variables dummies con coeficiente N/A, producto de la dependencia lineal entre esta y el resto de las variables dummies (por como fue construida)
-* Contrario a lo esperado, el coeficiente de la variable `room` da negativo (uno esperaria que a mayor cantidad de dambientes, mayor precio). Este efecto se podria explicar si observamos las correlaciones de las variables, y notamos como `room` esta fuertemente correlacionada con muchas de las otras variables que determinan el precio. Se podria decir que el efecto *mayor* de "a mas ambientes, mas cara la propiedad" esta representada por la combinacion de las otras variables, y que en este caso la variable `room` termina reflejando mas ruido que otra cosa.
- 
+* Siempre hay un caso de las variables dummies con coeficiente N/A (o que son directamente eliminados del modelo), producto de la dependencia lineal entre esta y el resto de las variables dummies (por como es construida)
+* Contrario a lo esperado, el coeficiente de la variable `room` es negativo (uno esperaria que a mayor cantidad de dambientes, mayor precio). Pero si interpretamos que esto es la variacion esperada de precios, manteniendo todas las demas variables constantes entonces interpretamos que para departamentos de igual tamaño, si se agrega un ambiente mas (achicando en promedio el tamaño de cada ambiente) el precio esperado bajaria.
 
-#### Correlograma
 
-Para entender un poco mejor los resultados obtenidos, se grafica un correlograma donde solo figuran las variables con mayor correlacion ( > 0.4)
-
+### c. Prediccion
 
 ```{r}
-suppressPackageStartupMessages(library(GGally))
-#ggcorr(ar_properties_dummies, method = c("everything", "pearson"))
-correlation <- cor(ar_properties_dummies, method = "pearson")
-correlation <- as.data.frame(as.table(correlation)) %>% filter( Freq < 1.0 & ( Freq>0.4 | Freq< -0.4) )
-correlatedVars <- unique(c(as.character(correlation$Var1), as.character(correlation$Var2)))
+crear_caso <- function( barrio, rooms, bathrooms, surface_total, surface_covered, property_type )
+{
+    new=ar_properties[FALSE,] %>% select( -c('price') )
+    new[1,] = list(barrio, rooms, bathrooms, surface_total, surface_covered, property_type)
+    return(new)
+}
 
-
-# Graficamos el correlograma
-ggcorr(ar_properties_dummies[,correlatedVars], method = c("everything", "pearson")) 
-
-```
-
-### predict part
-
-```{r}
-new=ar_properties[FALSE,]
-new[1,] = list('Abasto',3,2,120,120,NA,'Departamento')
-new_dummies <- fastDummies::dummy_cols( new )
-new_dummies <- new_dummies %>% select( -c('price') )
-
-
-predict(model, new_dummies, se.fit = TRUE)
+caso <- crear_caso(barrio='Abasto', rooms=3, bathrooms=2, surface_total=120, surface_covered=120, property_type='Departamento')
+head(caso)
+predict(model, caso, se.fit = TRUE)
 
 
 
-new=ar_properties[FALSE,]
-new[1,] = list('Balvanera',2,3,100,80,NA,'PH')
-new_dummies <- fastDummies::dummy_cols( new )
-new_dummies <- new_dummies %>% select( -c('price') )
-
-
-predict(model, new_dummies, se.fit = TRUE)
-
-
-
+caso <- crear_caso(barrio='Balvanera', rooms=2, bathrooms=3, surface_total=100, surface_covered=80, property_type='Departamento')
+head(caso)
+predict(model, caso, se.fit = TRUE )
 ```
 
 
+Observando las predicciones, podermos afirmar que segun el modelo el departamento mas grande (de Abasto) tendria considerablemente mas chances de ser el mas caro, aun teniendo el cuenta el desvio de la prediccion.
+
+
+# 2. Creacion de variables
+
+### a. Deteccion de barrios por precio
+
+Se buscara a continuacion agrupar los barrios en 3 categorias de precio, dependiendo de su precio/m^2^ promedio. Al haber una mayor correlacion del precio con la superficie cubierta, utilizaremos a esta como referencia:
+
+```{r}
+
+mean_price_area <- ar_properties %>%
+  select( 'l3', 'price', 'surface_covered' ) %>%
+  mutate(precio_area=price/surface_covered) %>%
+  select(-c('price', 'surface_covered')) %>%
+  group_by( l3 ) %>%
+  summarise(mean_price_area=mean(precio_area))
+
+groups=kmeans(mean_price_area$mean_price_area, 3, centers=c(2000,2800,3500) )
+
+ggplot(mean_price_area) +
+  geom_point(aes(x=mean_price_area, y='', color=as.factor(groups$cluster)), size=2, position='jitter', alpha=0.8) +
+  coord_fixed(ratio=1000) +
+  theme(legend.position = "none") +
+  geom_vline(xintercept=2400, color = "blue") +
+  geom_vline(xintercept=3200, color = "blue")
+
+
+mean_price_area$group <- groups$cluster
+mean_price_area <- mean_price_area %>% arrange( mean_price_area)
+```
+
+Para realizar la particion en 3 grupos de precios, utilizamos el algoritmo **k-means** para encontrar los limites de los mismos. Realizando una inspeccion visual podemos observar un claro corte entre los mas caros y los del medio, y uno no tan claro (pero acceptable) entre los mas bajos y los medios. De aqui utilizamos estos limites encontrados para definir los precios altos, medios y bajos. Cabe tambien destacar que se forzo el valor inicial de los centroides del algoritmo k-means, ya que no todas las inicializacions aleatorias generaban resultados satisfactorios
+
+
+```{r}
+
+ar_properties_range <- ar_properties %>%
+  inner_join( mean_price_area, by="l3" ) %>%
+  select( -'mean_price_area' )%>% 
+  mutate(precio_barrio = case_when(group == 1   ~ 'bajo',
+                                 group == 2   ~ 'medio',
+                                 TRUE ~     'alto')) %>%
+  select( -'l3', -'group' )
+
+ar_properties_range$precio_barrio <- as.factor(ar_properties_range$precio_barrio)
+glimpse(ar_properties_range)
+```
+
+
+### b. Calculo modelo por precio_barrio
+
+Mediante la agrupacion de barrios por precio promedio del punto anterior, se procede a calcular el modelo lineal:
+
+```{r}
+# Calculamos el modelo utilizando solo el precio_barrio, en lugar del barrio actual
+model <- lm( price~., data=ar_properties_range)
+summary(model)
+```
+
+* Podemos observar como el R ajustado de este nuevo modelo es muy parecido al que utiliza la informacion de todos los barrios (aunque ligeramente peor; 0.776 vs 0.747)
+* Igual que en el caso anterior, una variable de cada set de variables dummy no tiene coeficiente, al estar linealmente correlacionada con las otras
+* Al concentrar todos los barrios en 3 casos, ahora figura claramente que todas las variables con significativas
+* Los coeficientes modificadores de precio segun el barrio tienen valores esperados, siendo el mas bajo para la cateogria `precio_barriobajo`, el otro coeficiente (tambien negativo pero mayor al anterior) para `precio_barriomedio`, y dejando el coeficiente de 0 (por omision) para `precio_barrioalto` (que seria el coeficiente mas alto de los tres)
+
+### c. Comparacion de modelos
+
+Si nos atenemos estrictamente a los resultados numericos, el modelo de todos los barrios explica mejor la variabilidad cuando comparamos el R ajustado (utilizamos el R ajustado para comparar, ya que los modelos tienen distinta cantidad de variables, por lo cual se utiliza este mecanismo de compensacion para lgorar una comparacion mas 'justa'). Aun asi el modelo de rango de precios parece ser mas simple y mas facilmente interpretable. Si la precision de la prediccion deseada lo permite, este 2do modelo simplificado podria ser una mejor opcion cuando no se necesita demasiada granularidad o presicion.
+Es necesario destacar que estos resultados varian dependiendo del corte de precio de los barrios que se realice, lo cual este modelo agrega un poco mas de arbitrareidad a la ecuacion.
+
+
+### d. Variables fuertemente correlacionadas
+
+Notando que la superficie cubierta y superficie total estan fuertemente correlacionadas, por lo que procedemos a crear una nueva variable a partir de estas:
+
+```{r}
+# Obervamos si hay registros que tengan mas superficie cubierta que total (que seria imposible)
+print(paste(
+    'Cantidad de registros con superficie total < superficie cubierta :',
+    nrow(ar_properties %>% filter(surface_total < surface_covered))
+    ))
+
+
+ar_properties_superficie_patio <-ar_properties_range %>% mutate(surface_patio=surface_total-surface_covered) %>% select(-'surface_total' )
+glimpse(ar_properties_superficie_patio)
+```
 
 
 
+```{r}
+# Calculamos el modelo
+model <- lm( price~., data=ar_properties_superficie_patio)
+summary(model)
+```
 
+Si comparamos los dos modelos, podemos apreciar que estos son identicos en cuanto a prediccion. El efecto final de aplicar una transformacion lineal entre variables tuvo como efecto el ajuste de los coeficientes, pero la predictivilidad sigue siendo exactamente la misma: mismo R^2^ ajustado, mismos residuos y mismos coeficientes con la excpecion descrita abajo.
+
+**Modelo original**
+
+`surface_total                 857.97      24.63   34.83   <2e-16 ***`
+`surface_covered              1628.21      29.98   54.31   <2e-16 ***`
+
+**Modelo con transformacion lineal**
+
+`surface_covered              2486.18      15.83  157.03   <2e-16 ***`
+`surface_patio                 857.97      24.63   34.83   <2e-16 ***`
+
+donde podemos apreciar que el componente de precio generado por el par de variables arriba es el mismo que el de abajo, si consideramos que `surface_patio` = `surface_total` - `surface_covered`
+
+
+
+# 3. Evaluacion del modelo
+
+### a. Residuos del modelo
+
+Graficamos los residuos del modelo anterior:
+
+
+```{r}
+ggplot(model, aes(.fitted, .resid)) + 
+  geom_point(color = "lightcoral",alpha=0.2) +
+  geom_smooth() +
+  labs(x="precio estimado", y="Residuos", title='Residuos vs precio estimado')
+
+
+ggplot(model, aes(sample=.resid)) + 
+  stat_qq(color = "lightcoral")   +
+  stat_qq_line()
+
+```
+
+
+Al analizar los residuos (y en especial la tendencia de estos) se puede observar que el modelo lineal no logra ajustar de forma que pueda explicar la tendencia observada. Tambein se puede observar que el modelo no es homocedastico, al aumentar la variabilidad mientras mas altos son los precios estimados.
+Tambien podemos observar en el q-q plot de los residuos que cuando estos son grandes se desvian de lo esperado para una distribucion normal
+
+
+### b. Modelo Log
+
+
+```{r}
+model <- lm( log(price)~log(rooms)+
+                  log(bathrooms)+
+                  log(surface_covered)+
+                  surface_patio +
+                  property_type +
+                  precio_barrio
+            , data=ar_properties_superficie_patio)
+summary(model)
+
+ggplot(model, aes(.fitted, .resid)) + 
+  geom_point(color = "lightcoral",alpha=0.2) +
+  geom_smooth() +
+  labs(x="precio estimado", y="Residuos", title='Residuos vs precio estimado')
+
+ggplot(model, aes(sample=.resid)) + 
+  stat_qq(color = "lightcoral")   +
+  stat_qq_line()
+
+```
+
+Al analizar los resultados del modelo construido a partir del logaritmo de ciertas variables, podemos observar como este ajusta mejor que los casos anteriores, pudiendo explicar ~82% de la variabilidad del mismo, y al mismo tiempo mejorando el grafico de residuos: en este nuevo modelo pareceria haber una mejor homocedasticidad en un rango mas grande, y la distribucion de los residuos ajustan mejor a la distribucion normal.
+
+
+# 4. Modelos discriminados por tipo de propiedad
+
+```{r}
+library(generics)
+
+#analizamos las poblaciones
+ar_properties_superficie_patio %>% count(property_type) %>% mutate(porcentage=n/nrow(ar_properties_superficie_patio))
+
+#Calculamos el modelo lineal para las poblaciones discriminadas
+modelos_por_tipo <- ar_properties_superficie_patio %>%
+  # agrupamos y anidamos
+  group_by(property_type) %>% nest() %>%
+
+  # calculamos el modelo lineal por tipo de propiedad, y descartamos los datos originales
+  mutate(lm=map(data,function(df) lm( price~., data=df))) %>% select( -'data' ) %>%
+
+  # Explayamos la columna de resumen del modelo
+  mutate(modeldata=map(lm, function(mod) glance(mod))) %>%
+
+  # explayamos la columna de detalles del modelo
+  mutate(tidy_lm=map(lm, function(lm) tidy(lm))) %>%
+  
+  # descartamos la columna demodelo
+  select(-'lm')
+
+# Imprimimos los detalles del modelo en general
+modelos_por_tipo %>% unnest(modeldata) %>% select('property_type','adj.r.squared', 'df.residual', 'sigma')
+
+# Imprimimos los detalles de los coeficientes
+modelos_por_tipo %>% unnest(tidy_lm) %>% select(-'modeldata')
+```
+
+
+Cuando comparamos los distintos modelos generados cuando discriminamos por tipo de propiedad, comparando el R^2^ ajustado de cada uno, notamos que estos difieren considerablemente entre sí. Observamos que para departamentos, el modelo explica el 77% (recordamos que cuando no discriminabamos por tipo de propiedad el modelo explicaba el 74%); pero tambien notamos como para casa este valor es de tan solo 60%, y de 69% para PHs. De estos datos podemos estimar que los departamentos son mas *predecibles* para un modelo lineal, y al representar la gran mayoria de la poblacion total, la predictibilidad de esta poblacion aumentaba la predictibilidad del modelo combinado (respecto a predictibilidad de Casas y PHs por separado).
+
+Aun asi, podemos extraer otras conclusiones al separar los modelos, como por ej, la variacion esperada de precio por metro cuadrado cubierto es distinta en los modelos, y con una gran significatividad en todos los casos (Siendo los departamentos los mas caros por metro cuadrado, seguido por los PHs y finalmente por las casas), dato que en el modelo combinado solo era representado como una diferencia "constante" que dependía solamente del tipo de propiedad.
