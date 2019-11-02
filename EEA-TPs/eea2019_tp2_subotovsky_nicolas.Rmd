@@ -34,7 +34,6 @@ glimpse(ar_properties)
 Observamos 5 variables del tipo numericas (`rooms`, `bathrooms`, `surface_total`, `surface_covered` y `price`), y 2 categoricas (`property_type` y `l3`)
 
 
-
 ### b. Modelo de regresion lineal
 
 ```{r}
@@ -44,15 +43,16 @@ summary(model)
 ```
 Observaciones:
 
-* La mayoria (pero no todos) los coeficientes figuran como significativos. Para los barrios de Retiro y Colegiales, pareceria que estos no afectan al precio; pero podria interpretarse tambien que esto se debe a que estos barrios se encuentran cerca del promedio de precios, y no *tiran* el precio final ni hacia arriba ni hacia abajo
-* Los coeficientes grandes para las variables dummies de l3 parecerian indicar en general los barrios *caros*, y los coeficientes bajos los barrios *baratos*
-* Siempre hay un caso de las variables dummies con coeficiente N/A (o que son directamente eliminados del modelo), producto de la dependencia lineal entre esta y el resto de las variables dummies (por como es construida)
+* La mayoria (pero no todos) los coeficientes figuran como significativos. Para los barrios de Retiro y Colegiales, pareceria que estos no afectan al precio; pero podria interpretarse tambien que esto se debe a que estos barrios se encuentran cerca del caso basal, y no *tiran* el precio final ni hacia arriba ni hacia abajo.
+* Los coeficientes grandes para las variables dummies de l3 parecerian indicar en general los barrios *caros*, y los coeficientes bajos los barrios *baratos*.
+* Siempre hay un caso de las variables dummies con coeficiente N/A (o que son directamente eliminados del modelo), producto de la dependencia lineal entre esta y el resto de las variables dummies (por como es construida).
 * Contrario a lo esperado, el coeficiente de la variable `room` es negativo (uno esperaria que a mayor cantidad de dambientes, mayor precio). Pero si interpretamos que esto es la variacion esperada de precios, manteniendo todas las demas variables constantes entonces interpretamos que para departamentos de igual tamaño, si se agrega un ambiente mas (achicando en promedio el tamaño de cada ambiente) el precio esperado bajaria.
 
 
 ### c. Prediccion
 
 ```{r}
+# Funcion para crear un caso de estudio
 crear_caso <- function( barrio, rooms, bathrooms, surface_total, surface_covered, property_type )
 {
     new=ar_properties[FALSE,] %>% select( -c('price') )
@@ -60,15 +60,27 @@ crear_caso <- function( barrio, rooms, bathrooms, surface_total, surface_covered
     return(new)
 }
 
-caso <- crear_caso(barrio='Abasto', rooms=3, bathrooms=2, surface_total=120, surface_covered=120, property_type='Departamento')
-head(caso)
-predict(model, caso, se.fit = TRUE)
+#Creamos los casos, y los 'etiquetamos'
+casos <- do.call(rbind, list(
+    crear_caso(barrio='Abasto', rooms=3, bathrooms=2, surface_total=120, surface_covered=120, property_type='Departamento'), 
+    crear_caso(barrio='Balvanera', rooms=2, bathrooms=3, surface_total=100, surface_covered=80, property_type='Departamento')
+    )) %>%
+    
+    # creamos columna temporal para agrupar los casos
+    cbind(caso=c(1,2)) %>%
 
+    #agrupamos los casos
+    group_by(caso) %>% nest() %>%
 
+    #hacemos las predicciones para cada caso
+    mutate( prediction=map(data,function(data) data.frame(predict(model, data, se.fit=TRUE)))) %>%
 
-caso <- crear_caso(barrio='Balvanera', rooms=2, bathrooms=3, surface_total=100, surface_covered=80, property_type='Departamento')
-head(caso)
-predict(model, caso, se.fit = TRUE )
+    unnest(data) %>% unnest(prediction) %>%
+    
+    #descartamos la columna temporal de agrupacion
+    select(-'caso')
+
+head(casos)
 ```
 
 
@@ -82,33 +94,36 @@ Observando las predicciones, podermos afirmar que segun el modelo el departament
 Se buscara a continuacion agrupar los barrios en 3 categorias de precio, dependiendo de su precio/m^2^ promedio. Al haber una mayor correlacion del precio con la superficie cubierta, utilizaremos a esta como referencia:
 
 ```{r}
-
+# calculamos el precio por metro cuadrado
 mean_price_area <- ar_properties %>%
   select( 'l3', 'price', 'surface_covered' ) %>%
   mutate(precio_area=price/surface_covered) %>%
   select(-c('price', 'surface_covered')) %>%
+    
+  # y luego agrupamos por barrio, y calculamos la media
   group_by( l3 ) %>%
   summarise(mean_price_area=mean(precio_area))
 
+# Calculamos los centroides de 3 categorias usando K-means
 groups=kmeans(mean_price_area$mean_price_area, 3, centers=c(2000,2800,3500) )
 
-ggplot(mean_price_area) +
-  geom_point(aes(x=mean_price_area, y='', color=as.factor(groups$cluster)), size=2, position='jitter', alpha=0.8) +
+# graficamos los puntos, junto con sus categorias
+ggplot(mean_price_area, aes(x=mean_price_area, y='', color=as.factor(groups$cluster))) +
+  geom_jitter(width=0, height=0.5, size=2,alpha=0.8) +
   coord_fixed(ratio=1000) +
   theme(legend.position = "none") +
   geom_vline(xintercept=2400, color = "blue") +
   geom_vline(xintercept=3200, color = "blue")
 
-
+# agregamos la columna de cuan caro es el barrio
 mean_price_area$group <- groups$cluster
-mean_price_area <- mean_price_area %>% arrange( mean_price_area)
+mean_price_area <- mean_price_area %>% arrange(mean_price_area)
 ```
 
 Para realizar la particion en 3 grupos de precios, utilizamos el algoritmo **k-means** para encontrar los limites de los mismos. Realizando una inspeccion visual podemos observar un claro corte entre los mas caros y los del medio, y uno no tan claro (pero acceptable) entre los mas bajos y los medios. De aqui utilizamos estos limites encontrados para definir los precios altos, medios y bajos. Cabe tambien destacar que se forzo el valor inicial de los centroides del algoritmo k-means, ya que no todas las inicializacions aleatorias generaban resultados satisfactorios
 
 
 ```{r}
-
 ar_properties_range <- ar_properties %>%
   inner_join( mean_price_area, by="l3" ) %>%
   select( -'mean_price_area' )%>% 
@@ -154,7 +169,6 @@ print(paste(
     nrow(ar_properties %>% filter(surface_total < surface_covered))
     ))
 
-
 ar_properties_superficie_patio <-ar_properties_range %>% mutate(surface_patio=surface_total-surface_covered) %>% select(-'surface_total' )
 glimpse(ar_properties_superficie_patio)
 ```
@@ -196,16 +210,28 @@ ggplot(model, aes(.fitted, .resid)) +
   geom_smooth() +
   labs(x="precio estimado", y="Residuos", title='Residuos vs precio estimado')
 
-
 ggplot(model, aes(sample=.resid)) + 
   stat_qq(color = "lightcoral")   +
   stat_qq_line()
-
 ```
 
 
 Al analizar los residuos (y en especial la tendencia de estos) se puede observar que el modelo lineal no logra ajustar de forma que pueda explicar la tendencia observada. Tambein se puede observar que el modelo no es homocedastico, al aumentar la variabilidad mientras mas altos son los precios estimados.
 Tambien podemos observar en el q-q plot de los residuos que cuando estos son grandes se desvian de lo esperado para una distribucion normal
+
+```{r}
+#Extra stuff
+# 
+# x = ar_properties_superficie_patio
+# y = resid(model)
+# 
+# ggplot(model, aes(x$surface_covered,y)) + 
+#   geom_point(color = "lightcoral",alpha=0.2) +
+#   geom_smooth() +
+#   labs(x="precio estimado", y="Residuos", title='Residuos vs precio estimado') +
+#   stat_summary(fun.y=mean, colour="blue", geom="line") #+
+#   #stat_summary(fun.y=variance, colour="green", geom="line") +
+```
 
 
 ### b. Modelo Log
@@ -231,6 +257,9 @@ ggplot(model, aes(sample=.resid)) +
   stat_qq_line()
 
 ```
+
+
+
 
 Al analizar los resultados del modelo construido a partir del logaritmo de ciertas variables, podemos observar como este ajusta mejor que los casos anteriores, pudiendo explicar ~82% de la variabilidad del mismo, y al mismo tiempo mejorando el grafico de residuos: en este nuevo modelo pareceria haber una mejor homocedasticidad en un rango mas grande, y la distribucion de los residuos ajustan mejor a la distribucion normal.
 
@@ -264,7 +293,7 @@ modelos_por_tipo <- ar_properties_superficie_patio %>%
 modelos_por_tipo %>% unnest(modeldata) %>% select('property_type','adj.r.squared', 'df.residual', 'sigma')
 
 # Imprimimos los detalles de los coeficientes
-modelos_por_tipo %>% unnest(tidy_lm) %>% select(-'modeldata')
+modelos_por_tipo %>% unnest(tidy_lm)
 ```
 
 
