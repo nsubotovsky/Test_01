@@ -76,9 +76,9 @@ casos <- do.call(rbind, list(
     mutate( prediction=map(data,function(data) data.frame(predict(model, data, se.fit=TRUE)))) %>%
 
     unnest(data) %>% unnest(prediction) %>%
-    
+
     #descartamos la columna temporal de agrupacion
-    select(-'caso')
+    ungroup() %>% select(-'caso')
 
 head(casos)
 ```
@@ -142,15 +142,22 @@ glimpse(ar_properties_range)
 Mediante la agrupacion de barrios por precio promedio del punto anterior, se procede a calcular el modelo lineal:
 
 ```{r}
+#funcion para ajustar el caso base
+relevel.variable <- function(df, variable.name, new.base.level)
+{
+  df[variable.name] <- relevel( df[[variable.name]], ref=new.base.level)
+  return(df)
+}
+
 # Calculamos el modelo utilizando solo el precio_barrio, en lugar del barrio actual
-model <- lm( price~., data=ar_properties_range)
+model <- lm( price~., data=ar_properties_range %>% relevel.variable('precio_barrio', 'medio'))
 summary(model)
 ```
 
 * Podemos observar como el R ajustado de este nuevo modelo es muy parecido al que utiliza la informacion de todos los barrios (aunque ligeramente peor; 0.776 vs 0.747)
 * Igual que en el caso anterior, una variable de cada set de variables dummy no tiene coeficiente, al estar linealmente correlacionada con las otras
 * Al concentrar todos los barrios en 3 casos, ahora figura claramente que todas las variables con significativas
-* Los coeficientes modificadores de precio segun el barrio tienen valores esperados, siendo el mas bajo para la cateogria `precio_barriobajo`, el otro coeficiente (tambien negativo pero mayor al anterior) para `precio_barriomedio`, y dejando el coeficiente de 0 (por omision) para `precio_barrioalto` (que seria el coeficiente mas alto de los tres)
+* Los coeficientes modificadores de precio segun el barrio tienen valores esperados, siendo engativo para la cateogria `precio_barriobajo`, y positivo para el otro coeficiente `precio_barrioalto`, y dejando el coeficiente de 0 (por omision) para `precio_barriomedio` (se forzo el caso baso a `medio` intencionalmente)
 
 ### c. Comparacion de modelos
 
@@ -177,7 +184,7 @@ glimpse(ar_properties_superficie_patio)
 
 ```{r}
 # Calculamos el modelo
-model <- lm( price~., data=ar_properties_superficie_patio)
+model <- lm( price~., data=ar_properties_superficie_patio %>% relevel.variable( 'precio_barrio', 'medio' ))
 summary(model)
 ```
 
@@ -219,20 +226,6 @@ ggplot(model, aes(sample=.resid)) +
 Al analizar los residuos (y en especial la tendencia de estos) se puede observar que el modelo lineal no logra ajustar de forma que pueda explicar la tendencia observada. Tambein se puede observar que el modelo no es homocedastico, al aumentar la variabilidad mientras mas altos son los precios estimados.
 Tambien podemos observar en el q-q plot de los residuos que cuando estos son grandes se desvian de lo esperado para una distribucion normal
 
-```{r}
-#Extra stuff
-# 
-# x = ar_properties_superficie_patio
-# y = resid(model)
-# 
-# ggplot(model, aes(x$surface_covered,y)) + 
-#   geom_point(color = "lightcoral",alpha=0.2) +
-#   geom_smooth() +
-#   labs(x="precio estimado", y="Residuos", title='Residuos vs precio estimado') +
-#   stat_summary(fun.y=mean, colour="blue", geom="line") #+
-#   #stat_summary(fun.y=variance, colour="green", geom="line") +
-```
-
 
 ### b. Modelo Log
 
@@ -250,7 +243,7 @@ summary(model)
 ggplot(model, aes(.fitted, .resid)) + 
   geom_point(color = "lightcoral",alpha=0.2) +
   geom_smooth() +
-  labs(x="precio estimado", y="Residuos", title='Residuos vs precio estimado')
+  labs(x="log(precio estimado)", y="Residuos", title='Residuos vs precio estimado')
 
 ggplot(model, aes(sample=.resid)) + 
   stat_qq(color = "lightcoral")   +
@@ -259,15 +252,13 @@ ggplot(model, aes(sample=.resid)) +
 ```
 
 
-
-
 Al analizar los resultados del modelo construido a partir del logaritmo de ciertas variables, podemos observar como este ajusta mejor que los casos anteriores, pudiendo explicar ~82% de la variabilidad del mismo, y al mismo tiempo mejorando el grafico de residuos: en este nuevo modelo pareceria haber una mejor homocedasticidad en un rango mas grande, y la distribucion de los residuos ajustan mejor a la distribucion normal.
 
 
 # 4. Modelos discriminados por tipo de propiedad
 
 ```{r}
-library(generics)
+suppressPackageStartupMessages(library(generics))
 
 #analizamos las poblaciones
 ar_properties_superficie_patio %>% count(property_type) %>% mutate(porcentage=n/nrow(ar_properties_superficie_patio))
