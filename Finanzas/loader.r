@@ -4,6 +4,7 @@ library(gsubfn)
 library(data.table)
 
 
+
 ################## metrics ################
 
 get.roc.data <- function( predict, target )
@@ -52,7 +53,12 @@ func.gain <- function(probabilidades, clase, punto_corte = 0.025)
 
 
 
-################ XGB stuff #################
+################ Prepare training df #################
+
+pick.months <- function(df, month.list)
+{
+    return( df %>% filter(foto_mes %in% ( month.list %>% sapply( get.month.at ) ) ) )
+}
 
 
 target.func.baja2 <- function(df)
@@ -67,15 +73,10 @@ target.func.baja12 <- function(df)
 }
 
 
-
 split.prepare.target <- function(df, target.func=target.func.baja2)
 {
     df$clase_ternaria <- target.func(df)
-    
-    # Use this to merge
-    #df$clase_ternaria <- as.integer(ifelse(df$clase_ternaria != "CONTINUA", 1, 0))
-    
-    
+
     # split traing and target
     df.train <- df %>% select(-c("numero_de_cliente", "clase_ternaria"))
     df.target <- df$clase_ternaria
@@ -83,6 +84,8 @@ split.prepare.target <- function(df, target.func=target.func.baja2)
     return(list(train=df.train, target=df.target))
 }
 
+
+################ Prepare training df - xgb specific #################
 
 
 prepare.training.matrix.default <- function(df, target.func=target.func.baja2)
