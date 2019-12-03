@@ -1,0 +1,357 @@
+---
+title: "Trabajo Practico 3"
+output:
+  html_notebook:
+    theme: spacelab
+    toc: yes
+    toc_float: yes
+    df_print: paged
+---
+
+
+### 1: Preparacion de datos
+
+
+#### 1.A: Lectura y analisis de estructura del archivo
+
+Cargamos los datos y estudiamos brevemente su composicion
+
+```{r}
+# carga librerias tidyverse y ggplot2
+suppressPackageStartupMessages(library(tidyverse))
+suppressPackageStartupMessages(library(ggplot2))
+suppressPackageStartupMessages(library(GGally))
+suppressPackageStartupMessages(library(caret))
+suppressPackageStartupMessages(library(modelr))
+suppressPackageStartupMessages(library(pROC))
+suppressPackageStartupMessages(library(broom))
+suppressPackageStartupMessages(library(data.table))
+
+#carga de datos
+titanic.full.data <- read.csv('titanic_complete_train.csv', row.names = NULL, stringsAsFactors = TRUE, encoding = "UTF-8")
+
+#verificaion de casos y variables
+nrow(titanic.full.data)
+str(titanic.full.data)
+summary(titanic.full.data)
+```
+
+
+#### 1.b,c: Preparacion de datos
+
+Ajustamos los datos a factores, y reorganizamos algunas categorias
+
+```{r}
+# Generamos una funcion que ajsuta los datos, para poder reutilizar despues
+fix.data <- function(df)
+{
+  
+  # Seleccionamos las columnas de interes
+  filtered.df <- df %>% select( PassengerId, Survived, Pclass, Sex, Age, SibSp, Parch, Fare, Embarked ) %>%
+  
+    # convertimos a factor las columnas indicadas
+    mutate_at(vars(Survived, Pclass, Embarked), as_factor)
+
+  # reajustamos los factores para mas facil interpretacion
+  levels(filtered.df$Survived) <- c('Died', 'Lived')
+  levels(filtered.df$Pclass) <- c('1ra', '2da','3ra' )
+  
+  return(filtered.df)
+}
+
+# Tomamos los datos completos
+titanic.data <- titanic.full.data %>% fix.data()
+
+str(titanic.data)
+```
+
+#### 1.d: ggpairs
+
+```{r}
+titanic.data %>%
+  select(Survived, Pclass, Sex, Age, Fare) %>%
+  ggpairs(progress = F, legend=3,aes(colour=Survived) ) +
+     theme(legend.position = "bottom")
+```
+
+Se observa como las chances de sobrevivir cambian drasticamente con algunas variables (como sexo, clase o fare), y no tanto para otras (como edad). Esto nos da una pauta de que variables serian las mejores para predecir la probabilidad de supervivencia.
+
+
+#### 1.e Distribucion sobrevivientes vs no sobrevivientes
+
+```{r}
+# creamos una funcion que nos ayuda a analizar frecuencias relativas y abosultas agrupadas
+summary.group <- function( df, ... )
+{
+    group_var <- enquos(...)
+    return ( df %>% 
+        group_by( !!!group_var ) %>%
+        summarize(n=n()) %>%
+        mutate(freq=n/sum(n)) )
+}
+
+# y la aplicamos a diversas combinaciones
+titanic.data %>% summary.group( Survived )
+titanic.data %>% summary.group( Survived, Sex )
+titanic.data %>% summary.group( Survived, Pclass )
+titanic.data %>% summary.group( Survived, Pclass, Sex )
+```
+
+De la primera tabla se desprende el dato estadistico mas basico: solo un 38% del total sobrevivio la tragedia. Pero agrupando por diferentes categorias, podemos observar como esta proporcion no se mantiene cuando se discrimina por sexo, por clase, o por ambas a la vez.
+
+
+#### 1.f Particion de dataset
+
+```{r}
+set.seed(456)
+
+# Separamos el dataset en train y test
+train.index <- createDataPartition(titanic.data$Survived, p = 0.7, list = FALSE, )
+train.data <- titanic.data[train.index,]
+validation.data <- titanic.data[-train.index,]
+
+# analizamos la composicion de los mismos para 2 categorias
+cbind(
+  train.data %>% summary.group( Survived ),
+  validation.data %>% summary.group( Survived )  )
+
+cbind(
+  train.data %>% summary.group( Sex ),
+  validation.data %>% summary.group( Sex )
+)
+```
+
+Por como generamos la particion del dataset, nos aseguramos de mantener la relacion entre fallecidos y no fallecidos (+/- el error de cuantizar a casos discretos). Sin embargo, no se cumple estrictamente para las otras clases ya que no se forzo esta restriccion para ellas; como por ejemplo, para la variable `sexo` en este caso.
+
+
+### 2. Predicciones
+
+#### 2.a. Regresion logistica
+
+Se genera la regresion logistica y se analizan los resultados
+
+```{r}
+modelo <- glm(Survived ~ Pclass + Sex + Age, family = 'binomial', data=train.data)
+summary(modelo)
+```
+
+#### 2.b. Interpretacion
+
+A partir del modelo logistico, se observa los iguiente:
+
+ * Todas las variables del modelo aparecen como significativas
+ * Tomando como referencia basal la 1era clase, pertenecer a 2da clase disminuye las probabilidad de sobrevivir, y aun mas para 3ra clase
+ * De forma semejante, ser hombre disminuye la probabilidad de sobrevivir
+ * La edad parece tambien influir en la probabilidad de supervivencia (de forma negativa), pero con un efecto bastante menor al de las clases o sexo
+ 
+ 
+#### 2.c. Rose vs. Jack
+
+```{r}
+
+# Funcion para crear un caso de estudio
+crear_caso <- function( Pclass, Sex, Age )
+{
+    new=train.data[FALSE,] %>% select( Pclass, Sex, Age )
+    new[1,] = list(Pclass, Sex, Age)
+    return(new)
+}
+
+
+#Creamos los casos, y los 'etiquetamos'
+casos <- do.call(rbind, list(
+    crear_caso(Pclass="1ra", Sex="female", Age=17),
+    crear_caso(Pclass="3ra", Sex="male", Age=20) 
+    )) %>%
+    
+    # creamos columna temporal para agrupar los casos
+    cbind(caso=c('Rose','Jack')) %>%
+
+    #agrupamos los casos
+    group_by(caso) %>% nest() %>%
+
+    #hacemos las predicciones para cada caso
+    mutate( prediction=map(data,function(data) data.frame(predict(modelo, data, type='response')))) %>%
+
+    unnest(data) %>% unnest(prediction) %>%
+
+    #descartamos la columna temporal de agrupacion
+    ungroup() 
+
+head(casos)
+```
+
+Observamos que, fiel a la pelicula, las chances de sobrevivir de Rose eran bastante mayor a las de Jack.
+
+
+### 3. Generacion de modelos
+
+
+```{r}
+  # planeamos los modelos en funcion de las variables
+modelos <- tibble( formula=formulas(.response = ~Survived,
+                         class.sex = ~Pclass+Sex,
+                         fare.sex = ~Fare+Sex,
+                         class.sex.fare = ~Pclass+Sex+Fare,
+                         useless = ~Embarked+SibSp+Parch,
+                         all = ~Pclass+Sex+Age+SibSp+Parch+Fare+Embarked,
+                          ) ) %>%
+  
+  # Agregamos la descripcion de cada modelo
+  mutate( desc=names(formula) ) %>%
+  
+  # Calculamos el modelo
+  mutate( modelo=map( formula, ~glm(., family='binomial', data=train.data) ) ) %>%
+  
+  # extraigo las variables de interes del modelo
+  mutate( glance=map(modelo,glance)) %>% unnest(glance)
+
+
+# analizamos los factores de interes de los modelos
+modelos %>% select(desc, deviance, null.deviance ) %>%
+  
+  # calculo el porcentaje explicado
+  mutate(explained = 1-deviance/null.deviance) %>%
+  
+  # ordeno por deviance
+  arrange(deviance)
+
+```
+
+Observaciones:
+
+ * el modelo que incluye todas las variables es el de menor *deviance*, como era de esperarse, ya que este posee la mayor cantidad de informacion para *explicar* lo observado
+ * pudimos observar en 1.d que fare podria ayudar a explicar cierta variacion entre quienes sobrevivieron; pero esta variacion pareceria estar aun mejor explicada por la clase del pasajero. Esto se evidencia al ser el modelo de clase + sexo mejor que el de clase + fare.
+ * Se observa tambien que hay Fare y clase parecerian estar correlacionados, al no disminuir mucho el `deviance` al incluir esta variable
+ * de forma intencional se incluyo un modelo que agrupaba los parametros que parecian menos relevantes, y efectivamente observamos como este modelo es el de mayor *deviance*
+ * El modelo de clase + sexo parece ser un buen compromiso entre simplicidad y bondad de ajuste, al trabajar con solo 2 variaables y explicar un buen porcentaje en comparacion a las alternativas
+ 
+Mas alla de lo analizado, se procede a elegir el modelo 'all' para los siguientes puntos, ya que este presenta mejores caracteristicas para su analisis (mas alla de su complejidad)
+
+
+ 
+### 4. Evaluacion de modelos
+ 
+```{r}
+modelo.elegido <- modelos[modelos$desc=='all',]$modelo[[1]]
+
+prediccion <- augment(modelo.elegido, type.predict='response' )
+
+# Calculamos la curva ROC y la graficamos
+roc.curve <- roc(response = prediccion$Survived, predictor = prediccion$.fitted)
+
+# Graficamos la curva
+ggroc(list(all = roc.curve), size=1) + geom_abline(slope = 1, intercept = 1, linetype='dashed')
+
+# y el violin plot
+ggplot(prediccion, aes(x=Survived, y=.fitted, group=Survived,fill=factor(Survived))) + 
+  geom_violin()
+
+#observamos el AUC
+print( roc.curve$auc )
+```
+
+Se observa que el modelo predice con una buena precision los casos mas *extremos*: cuando la probabilidad de sobrevivir es muy alta o muy baja. Esto se aprecia en que la *anchura* en los graficos de violin en los extremos son muy diferentes en los extremos, y en la curva ROC se aprecia al observar que en ambos extremos de la curva esta se se *alinea* bastante con el eje de sensibilidad (al inicio) y con el de especificidad (al final). En el medio es donde se presta a mayor probabilidad de error, donde no resulta tan cual seria un punto de corte apropiado.
+
+
+### 5. Eleccion del punto de corte
+ 
+Realizamos nuevamente los mismos graficos, pero con los valores de validacion:
+
+```{r}
+prediccion <- augment(modelo.elegido, newdata=validation.data, type.predict='response' )
+
+# Calculamos la curva ROC y la graficamos
+roc.curve <- roc(response = prediccion$Survived, predictor = prediccion$.fitted)
+
+# Graficamos la curva
+ggroc(list(all = roc.curve), size=1) + geom_abline(slope = 1, intercept = 1, linetype='dashed')
+
+# y el violin plot
+ggplot(prediccion, aes(x=Survived, y=.fitted, group=Survived,fill=factor(Survived))) + 
+  geom_violin()
+
+
+help(confusionMatrix)
+```
+
+Vemos que se perdio un poco el poder de prediccion, lo cual es es esperable al  validar el modelo con datos distintos a los de entrenamiento.
+
+
+```{r}
+# Generamos una funcion que calcule los parametros de interes
+
+
+generate.prediction <- function(curr.cutoff, prediccion, target)
+{  
+ # Hacer la prediccion con probabilidades
+  predictions <- data.table( predict.prob=prediccion$.fitted) %>%
+  
+    # elegir un resultado en base al punto de corte
+    mutate( predict.value=if_else( predict.prob>=curr.cutoff, 'Lived', 'Died') ) %>%
+    
+    # Adjutnar la columna de resultados verderos
+    cbind( actual.value=target)  %>%
+    
+    # convertir a factor para comparacion
+    mutate_at( vars(predict.value, actual.value), as_factor )
+}
+
+
+calc.metrics <- function( curr.cutoff, prediccion )
+{
+  predictions <- generate.prediction(curr.cutoff, prediccion, validation.data$Survived)
+
+  # calculamos los parametros de la matriz de confusion
+  confusion <- confusionMatrix(table(predictions$predict.value, predictions$actual.value ), positive='Lived' ) %>%
+    
+    # desagrupamos los valores de la matriz de confusion
+    tidy() %>% select(term, estimate) %>%
+    
+    # Tomamos los valores que nos interesan
+    filter(term %in% c('accuracy', 'specificity', 'recall', 'precision')) %>%
+    
+    # agregamos la columna de cutoff
+    mutate(cutoff=curr.cutoff)
+  
+  return(confusion)
+  
+}
+
+# preparo secuencia
+seq( 0.1, 0.9, 0.01) %>%
+
+  # calculo las metricas
+  map_dfr( function(cutoff) calc.metrics(cutoff, prediccion) ) %>% 
+  
+  # las grafico
+  ggplot( aes(x=cutoff, y=estimate, color=term)) + geom_line() + geom_vline(xintercept=0.54)
+```
+
+Elegir un punto de corte para el modelo sin un fin establecido resulta arbitrario ya que hay varios criterios y estos dependen del uso que se le de al modelo (por ejemplo, cual es el balance entre el costo de un falso positivo vs un falso negativo). Dada esta falta de contexto, se elige maximizar el *accuracy* para minimizar los errores en general, que podemos observar en el grafico que este punto corresponde aproximadamente al valor 0.54
+
+```{r}
+# Genero la matrix de confusion del modelo
+prediction <- generate.prediction(0.54, prediccion)
+confusionMatrix(table(prediction$predict.value, prediction$actual.value ), positive='Lived' )
+```
+
+Podemos apreciar como el valor de corte elegido con el criterio de mayor *accuracy* intenta maximizar la traza de la matriz de confusion (que corresponde a la suma de verdaderos positivos y verdadeos negativos), minimizando los falsos positivos (35) y los falsos negativos (17)
+
+
+### 6. Dataset de testeo
+
+```{r}
+#carga de datos
+titanic.test.data <- read.csv('titanic_complete_test.csv', row.names = NULL, stringsAsFactors = TRUE, encoding = "UTF-8") %>% 
+  fix.data()
+
+
+test.prediction <- augment(modelo.elegido, newdata=titanic.test.data, type.predict='response' )
+prediction <- generate.prediction(0.54, test.prediction, test.prediction$Survived)
+confusionMatrix(table(prediction$predict.value, prediction$actual.value ), positive='Lived' )
+```
+
+Se observa como disminuyo el *accuracy*, esperado de 80% a 77%, al tratarse de nuevos datos, pero aun asi conserva poder de prediccion apreciable. Vemos como tambien se mantiene la tendencia a tratar de maximizar la traza, pareceria que el punto de corte es acertado (aunque para asegurarnos de esto habria que realizar nuevamente los analisis realizados previamente pero con los nuevos datos)
+
+
